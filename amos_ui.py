@@ -141,7 +141,54 @@ QToolTip {
     padding:4px;
 }
 """
+class Drop_Label(QLabel):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        self.pathtype=""
 
+    def defineType(self, type_define):
+        self.pathtype = type_define
+
+    def dragEnterEvent(self, event):
+        path=str(event.mimeData().urls()[0].toLocalFile())
+        if event.mimeData().hasUrls and path[-4:].upper() == ".MP4" and self.pathtype == "video":
+            event.accept()
+        elif event.mimeData().hasUrls and path[-4:].upper() == ".XML" and self.pathtype == "xml":
+            event.accept()
+        elif event.mimeData().hasUrls and os.path.isdir(path) and self.pathtype == "folder":
+            event.accept()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls:
+            event.setDropAction(Qt.CopyAction)
+            event.accept()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        if event.mimeData().hasUrls:
+            event.setDropAction(Qt.CopyAction)
+            event.accept()
+
+            output = event.mimeData().urls()
+            links = []
+            for link in output:
+                if link.isLocalFile():
+                    links.append(str(link.toLocalFile()))
+
+            if self.pathtype == "video":
+                Window.setup_video_selection(links)
+
+            if self.pathtype == "xml":
+                Window.setup_xml_selection(links)
+
+            if self.pathtype == "folder":
+                Window.setup_folder_selection(links[0])
+        else:
+            event.ignore()
 
 class AmosWindow(QMainWindow):
     def __init__(self):
@@ -172,6 +219,8 @@ class AmosWindow(QMainWindow):
 
         #define movies
         self.loading_animation = QMovie("files/loading.gif")
+        self.loading_animation.setScaledSize(QSize(32,32))
+        
 
         self.resize(1000, 700)
         self.setFont(self.default_font)
@@ -238,15 +287,18 @@ class AmosWindow(QMainWindow):
 
         spacer_browse_path = QSpacerItem(60, 20, QSizePolicy.Fixed, QSizePolicy.Minimum)
 
-        self.videopath_label = QLabel(self.file_selection_widget)
+        self.videopath_label = Drop_Label(self.file_selection_widget)
+        self.videopath_label.defineType("video")
         self.videopath_label.setFont(self.default_font)
         self.videopath_label.setAlignment(Qt.AlignCenter)
         self.videopath_label.setObjectName("videopath_label")
-        self.xmlpath_label = QLabel(self.file_selection_widget)
+        self.xmlpath_label = Drop_Label(self.file_selection_widget)
+        self.xmlpath_label.defineType("xml")
         self.xmlpath_label.setFont(self.default_font)
         self.xmlpath_label.setAlignment(Qt.AlignCenter)
         self.xmlpath_label.setObjectName("xmlpath_label")
-        self.folderpath_label = QLabel(self.file_selection_widget)
+        self.folderpath_label = Drop_Label(self.file_selection_widget)
+        self.folderpath_label.defineType("folder")
         self.folderpath_label.setFont(self.default_font)
         self.folderpath_label.setAlignment(Qt.AlignCenter)
         self.folderpath_label.setObjectName("folderpath_label")
@@ -375,9 +427,9 @@ class AmosWindow(QMainWindow):
         self.browse_video_button.setText("BROWSE")
         self.browse_xml_button.setText("BROWSE")
         self.browse_folder_button.setText("BROWSE")
-        self.videopath_label.setText('Please select a video file by pressing "Browse"')
-        self.xmlpath_label.setText('Please select an XML file by pressing "Browse"')
-        self.folderpath_label.setText('Please select a folder to store the results in by pressing "Browse"')
+        self.videopath_label.setText('Please press "Browse" or drag & drop a video to select it')
+        self.xmlpath_label.setText('Please press "Browse" or drag & drop an XML file to select it')
+        self.folderpath_label.setText('Please press "Browse" or drag & drop a folder to select it')
         
         self.defaults_group.setTitle("Defaults")
         self.set_defaults_button.setText("Set defaults")
@@ -426,41 +478,84 @@ class AmosWindow(QMainWindow):
 
         self.actionQuit.triggered.connect(self.exit_program)
 
-    def get_video_location(self):
-        self.videopath = QFileDialog.getOpenFileName(parent=self, filter="MP4 Files (*.mp4)")
-        self.videopath = self.videopath[0]
-        if self.videopath != "": #If the user didn't cancel the selection
-            self.VideoID = self.videopath[-10:-4]
-            self.videopath_label.setText("Video: \n" + self.videopath)
+    def setup_video_selection(self, videopath_list):
+        self.videopath_list = videopath_list
+        if self.videopath_list != []: #If the user didn't cancel the selection
+            self.VideoID_List = []
+            self.videopath_string = ""
+            for video in self.videopath_list:
+                self.VideoID_List.append(video[-10:-4])
+            if len(self.videopath_list) == 1:
+                self.videopath_string = self.videopath_list[0]
+                if len(self.videopath_string) > 50:
+                    self.videopath_string = f"{self.videopath_string[:3]} [ . . . ] {self.videopath_string[-50:]}"
+                self.videopath_label.setText("Video:\n" + self.videopath_string)
+            else:
+                for i in range(1):
+                    video=self.videopath_list[i]
+                    if len(video) > 50:
+                        video=f"{video[:3]} [ . . . ] {video[-50:]}"
+                    self.videopath_string += f"\n{video}"
+                self.videopath_string += f"\n... and {str(len(self.videopath_list)-1)} more"
+                self.videopath_label.setText("Videos:" + self.videopath_string)
             self.video_selection_status.setPixmap(QPixmap("files/check_icon.png"))
             self.video_selection_status.setToolTip("Status:\nCompleted!")
-            thumbnail = get_thumbnail(self.videopath)
+            thumbnail = get_thumbnail(self.videopath_list[0])
             height, width, channel = thumbnail.shape
             bytesPerLine = 3 * width
             video_thumbnail = QImage(thumbnail.data, width, height, bytesPerLine, QImage.Format_RGB888).rgbSwapped()
             self.video_thumb.setPixmap(QPixmap(video_thumbnail))
-            
 
-    def get_xml_location(self):
-        self.xmlpath = QFileDialog.getOpenFileName(parent=self, filter="XML Files (*.xml)")
-        self.xmlpath = self.xmlpath[0]
-        if self.xmlpath != "": #If the user didn't cancel the selection
-            self.xmlpath_label.setText("XML: \n" + self.xmlpath)
+    def setup_xml_selection(self, xmlpath_list):
+        self.xmlpath_list = xmlpath_list
+        if self.xmlpath_list != []: #If the user didn't cancel the selection
+            self.xmlpath_string = ""
+            if len(self.xmlpath_list) == 1:
+                self.xmlpath_string = self.xmlpath_list[0]
+                if len(self.xmlpath_string) > 50:
+                    self.xmlpath_string = f"{self.xmlpath_string[:3]} [ . . . ] {self.xmlpath_string[-50:]}"
+                self.xmlpath_label.setText("XML:\n" + self.xmlpath_string)
+            else:
+                for i in range(1):
+                    xml=self.xmlpath_list[i]
+                    if len(xml) > 50:
+                        xml=f"{xml[:3]} [ . . . ] {xml[-50:]}"
+                    self.xmlpath_string += f"\n{xml}"
+                self.xmlpath_string += f"\n... and {str(len(self.xmlpath_list)-1)} more"
+                self.xmlpath_label.setText("XMLs:" + self.xmlpath_string)
             self.xml_selection_status.setPixmap(QPixmap("files/check_icon.png"))
             self.xml_selection_status.setToolTip("Status:\nCompleted!")
 
-    def get_folder_location(self):
-        self.folderpath = QFileDialog.getExistingDirectory(parent=self)
+    def setup_folder_selection(self, folderpath):
+        self.folderpath = folderpath
         if self.folderpath != "": #If the user didn't cancel the selection
-            self.folderpath_label.setText("Results folder: \n" + self.folderpath)
+            if len(self.folderpath) > 50:
+                self.folderpath_string = f"{self.folderpath[:3]} [ . . . ] {self.folderpath[-50:]}"
+            self.folderpath_label.setText("Results folder:\n" + self.folderpath_string)
+            
             self.folder_selection_status.setPixmap(QPixmap("files/check_icon.png"))
             self.folder_selection_status.setToolTip("Status:\nCompleted!")
 
+    def get_video_location(self):
+        self.videopath_list = QFileDialog.getOpenFileNames(parent=self, filter="MP4 Files (*.mp4)")
+        self.videopath_list = self.videopath_list[0]
+        self.setup_video_selection(self.videopath_list)
+            
+
+    def get_xml_location(self):
+        self.xmlpath_list = QFileDialog.getOpenFileNames(parent=self, filter="XML Files (*.xml)")
+        self.xmlpath_list = self.xmlpath_list[0]
+        self.setup_xml_selection(self.xmlpath_list)
+
+    def get_folder_location(self):
+        self.folderpath = QFileDialog.getExistingDirectory(parent=self)
+        self.setup_folder_selection(self.folderpath)
+
     def delete_video_selection(self):
         try:
-            self.videopath_label.setText('Please select a video file by pressing "Browse"')
+            self.videopath_label.setText('Please press "Browse or drag & drop a video to select it')
             self.video_selection_status.setPixmap(QPixmap("files/cross_icon.png"))
-            del self.videopath
+            del self.videopath_list
             self.video_thumb.setPixmap(QPixmap("files/default_thumbnail.png"))
             self.video_selection_status.setToolTip("Status:\nNot yet completed!")
         except AttributeError:
@@ -468,16 +563,16 @@ class AmosWindow(QMainWindow):
 
     def delete_xml_selection(self):
         try:
-            self.xmlpath_label.setText('Please select an XML file by pressing "Browse"')
+            self.xmlpath_label.setText('Please press "Browse" or drag & drop a video to select it')
             self.xml_selection_status.setPixmap(QPixmap("files/cross_icon.png"))
-            del self.xmlpath
+            del self.xmlpath_list
             self.xml_selection_status.setToolTip("Status:\nNot yet completed!")
         except AttributeError:
             pass
     
     def delete_folder_selection(self):
         try:
-            self.folderpath_label.setText('Please select a folder to store the results in by pressing "Browse"')
+            self.folderpath_label.setText('Please press "Browse" or drag & drop a video to select it')
             self.folder_selection_status.setPixmap(QPixmap("files/cross_icon.png"))
             del self.folderpath
             self.folder_selection_status.setToolTip("Status:\nNot yet completed!")
@@ -510,10 +605,15 @@ class AmosWindow(QMainWindow):
     
     def analyse(self):
         try:
-            analyse(self.videopath,self.xmlpath,self.folderpath, self.VideoID, Window)
+            for i in range(len(self.videopath_list)):
+                print(self.videopath_list)
+                print(self.xmlpath_list)
+                print(self.VideoID_List)
+                analyse(self.videopath_list[i],self.xmlpath_list[i],self.folderpath, self.VideoID_List[i], Window)
             self.analysation_status_image.setPixmap(QPixmap("files/check_icon.png"))
             self.analysation_status_image.setToolTip("Status:\nCompleted!")
-        except AttributeError:
+        except AttributeError as a:
+            print(a)
             self.analyse_error_message = QMessageBox()
             self.analyse_error_message.setWindowTitle("File selection missing!")
             self.analyse_error_message.setText('The analysation algorithm needs three infos:\n    1. The video to process.\n    2. The corresponding XML file to get information like the \n        duration, resolution and frame rate.\n    3. The folder where it saves images of frames with meteors \n        and the spreadsheet.')

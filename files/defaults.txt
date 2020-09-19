@@ -1,3 +1,1 @@
-D:/Jugend forscht/Jugend forscht 2021/AMOS/Tests/V-0001.mp4
-D:/Jugend forscht/Jugend forscht 2021/AMOS/Tests/V-0001.XML
-D:/Jugend forscht/Jugend forscht 2021/AMOS/Tests/Results
+[[], [], "None"]

@@ -1,5 +1,5 @@
 #Importing all modules
-import cv2, time, datetime, numpy, pandas, os, statistics, imutils, shutil, sys
+import cv2, time, datetime, numpy, pandas, os, statistics, imutils, shutil, sys, json
 import openpyxl as xl
 from xml.dom import minidom
 from datetime import timedelta
@@ -23,9 +23,8 @@ def check_pos(first, second, thresh):
     else:
         return False
 
-def analyse(videopath, xmlpath, folderpath, VideoID, Window):
-    """Analyse a video. videopath(String): Full path to the processed video. xmlpath(String): Full path to the XML File. folderpath(String): Full path to the folder to store results in. VideoID(String): ID of the processing video. Window(Qt Window object): The Window where the UI for the analysation is in."""
-    Window.loading_animation.setScaledSize(QSize(32,32))
+def analyse(videopath, xmlpath, folderpath, VideoID_List, Window):
+    """Analyse a video. videopath(String): Full path to the processed video. xmlpath(String): Full path to the XML File. folderpath(String): Full path to the folder to store results in. VideoID_List(String): ID of the processing video. Window(Qt Window object): The Window where the UI for the analysation is in."""
     Window.analysation_status_image.setMovie(Window.loading_animation)
     Window.loading_animation.start()
 
@@ -108,7 +107,6 @@ def analyse(videopath, xmlpath, folderpath, VideoID, Window):
     
     for i in range(length):
         progress_percent = frame_number / length * 100
-        #analysation_progressbar['value'] = progress_percent
         Window.analysation_progressbar.setProperty("value", progress_percent)
 
         #Reading current frame
@@ -125,6 +123,7 @@ def analyse(videopath, xmlpath, folderpath, VideoID, Window):
         if ref_frame is None:
             ref_frame = gray
             print("Reference frame is first frame.")
+            status_list=[0]
             continue
         if frame_number%1000 == 0:
             ref_frame = gray
@@ -225,7 +224,7 @@ def analyse(videopath, xmlpath, folderpath, VideoID, Window):
             cell.value = str(base_time)[-8:]
 
             cell = sheet.cell(row_number,3)
-            cell.value = VideoID
+            cell.value = VideoID_List
 
             cell = sheet.cell(row_number,4)
             cell.value = str(beginning_video_time + timedelta(seconds = current_seconds))[11:]
@@ -323,7 +322,7 @@ def analyse(videopath, xmlpath, folderpath, VideoID, Window):
         cv2.putText(stack, 'Threshold', (1250, 30), cv2.FONT_HERSHEY_DUPLEX, 0.8,(255,255,255),1,cv2.LINE_AA)
 
         #Opening windows for visualization
-        cv2.imshow('Analysation - AMOS',frameResized)
+        cv2.imshow('AMOS - Analysation',frameResized)
         #cv2.imshow('Additional details - AMOS', stack)
 
         key = cv2.waitKey(1)
@@ -349,9 +348,11 @@ def analyse(videopath, xmlpath, folderpath, VideoID, Window):
             print("Frame reset because of key pressed.")
 
         frame_number+=1
+
+    video.stop()
     
     #Close all Windows
-    cv2.destroyWindow('Analysation - AMOS')
+    cv2.destroyWindow('AMOS - Analysation')
     cv2.destroyWindow('Additional details - AMOS')
 
     try:
@@ -404,97 +405,63 @@ def save_spreadsheet(Window):
     wb.save(f'{Window.folderpath}/Results.xlsx')
     
 def apply_defaults(Window):
-    defaults = []
-    defaults_file = open("files/defaults.txt", "r")
-    for line in defaults_file:
-        defaults.append(line.strip())
+    with open("files/defaults.txt", "r") as defaults_file:
+        defaults = json.loads(defaults_file.read())
     
-    if defaults[0] == "None" or defaults[1] == "None" or defaults[2] == "None":
+    if defaults[0] == [] or defaults[1] == [] or defaults[2] == "None":
         set_defaults_now = QMessageBox.question(Window, "No defaults yet!", "You have not set any defaults yet. Do you want to set them now?", QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
-
         if set_defaults_now == QMessageBox.Yes:
             set_defaults(Window)
     else:
-        Window.videopath, Window.xmlpath, Window.folderpath = defaults
-        Window.VideoID = Window.videopath[-10:-4]
-        Window.videopath_label.setText("Video: \n" + Window.videopath)
-        Window.xmlpath_label.setText("XML: \n" + Window.xmlpath)
-        Window.folderpath_label.setText("Results folder: \n" + Window.folderpath)
-        Window.video_selection_status.setPixmap(QPixmap("files/check_icon.png"))
-        Window.xml_selection_status.setPixmap(QPixmap("files/check_icon.png"))
-        Window.folder_selection_status.setPixmap(QPixmap("files/check_icon.png"))
-        Window.video_selection_status.setToolTip("Status:\nCompleted!")
-        Window.xml_selection_status.setToolTip("Status:\nCompleted!")
-        Window.folder_selection_status.setToolTip("Status:\nCompleted!")
-        thumbnail = get_thumbnail(Window.videopath)
-        height, width, channel = thumbnail.shape
-        bytesPerLine = 3 * width
-        video_thumbnail = QImage(thumbnail.data, width, height, bytesPerLine, QImage.Format_RGB888).rgbSwapped()
-        Window.video_thumb.setPixmap(QPixmap(video_thumbnail))
-    defaults_file.close()
+        Window.videopath_list, Window.xmlpath_list, Window.folderpath = defaults
+        Window.setup_video_selection(Window.videopath_list)
+        Window.setup_xml_selection(Window.xmlpath_list)
+        Window.setup_folder_selection(Window.folderpath)
 
 def set_defaults(Window):
-    select_video_info = QMessageBox()
-    select_video_info.setWindowTitle("INFO")
-    select_video_info.setText("In the following dialog, select your default video path.")
-    select_video_info.setIcon(QMessageBox.Information)
-    select_video_info.setStandardButtons(QMessageBox.Ok)
-
+    select_video_info = QMessageBox(icon=QMessageBox.Information, text="In the following dialog, select your default video(s).")
+    select_video_info.setWindowTitle("Info")
     x = select_video_info.exec_()
-    Window.default_videopath = QFileDialog.getOpenFileName(parent=Window, filter="MP4 Files (*.mp4)")
-    Window.default_videopath = Window.default_videopath[0]
-    if Window.default_videopath != "": #If the user didn't cancel the selection
-        select_xml_info = QMessageBox()
-        select_xml_info.setWindowTitle("INFO")
-        select_xml_info.setText("In the following dialog, select your default xml path.")
-        select_xml_info.setIcon(QMessageBox.Information)
-        select_xml_info.setStandardButtons(QMessageBox.Ok)
 
+    Window.default_videopath_list = QFileDialog.getOpenFileNames(parent=Window, filter="MP4 Files (*.mp4)")
+    Window.default_videopath_list = Window.default_videopath_list[0]
+    if Window.default_videopath_list != []: #If the user didn't cancel the selection
+        select_xml_info = QMessageBox(icon=QMessageBox.Information, text="In the following dialog, select your default XML(s).")
+        select_xml_info.setWindowTitle("Info")
         x = select_xml_info.exec_()
-        Window.default_xmlpath = QFileDialog.getOpenFileName(parent=Window, filter="XML Files (*.xml)")
-        Window.default_xmlpath = Window.default_xmlpath[0]
-        if Window.default_xmlpath != "": #If the user didn't cancel the selection
-            select_folder_info = QMessageBox()
-            select_folder_info.setWindowTitle("INFO")
-            select_folder_info.setText("In the following dialog, select your default folder to store results in.")
-            select_folder_info.setIcon(QMessageBox.Information)
-            select_folder_info.setStandardButtons(QMessageBox.Ok)
 
+        Window.default_xmlpath_list = QFileDialog.getOpenFileNames(parent=Window, filter="XML Files (*.xml)")
+        Window.default_xmlpath_list = Window.default_xmlpath_list[0]
+        if Window.default_xmlpath_list != []: #If the user didn't cancel the selection
+            select_folder_info = QMessageBox(icon=QMessageBox.Information, text="In the following dialog, select your default folder to store results in.")
+            select_folder_info.setWindowTitle("Info")
             x = select_folder_info.exec_()
+
             Window.default_folderpath = QFileDialog.getExistingDirectory(parent=Window)
             if Window.default_folderpath != "": #If the user didn't cancel the selection
-                default_paths = [Window.default_videopath, Window.default_xmlpath, Window.default_folderpath]
-                defaults_file = open("files/defaults.txt", "w")
-                for line in default_paths:
-                    defaults_file.write(line)
-                    defaults_file.write("\n")
-                defaults_file.close()
+                default_paths = [Window.default_videopath_list, Window.default_xmlpath_list, Window.default_folderpath]
+                with open("files/defaults.txt", "w") as defaults_file:
+                    defaults_file.write(json.dumps(default_paths))
 
-            Window.set_defaults_success_message = QMessageBox()
-            Window.set_defaults_success_message.setWindowTitle("Info")
-            Window.set_defaults_success_message.setText('Defaults set succesfully!')
-            Window.set_defaults_success_message.setIcon(QMessageBox.Information)
-            Window.set_defaults_success_message.setStandardButtons(QMessageBox.Ok)
+                set_defaults_success_message = QMessageBox(icon=QMessageBox.Information, text="Defaults set succesfully!")
+                set_defaults_success_message.setWindowTitle("Info")
+                x = set_defaults_success_message.exec_()
 
 def delete_defaults(Window):
     delete_continue = QMessageBox.question(Window, "Do you want to delete?", "Are you sure that you want to delete the defaults?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
 
     if delete_continue == QMessageBox.Yes:
-        defaults_file = open("files/defaults.txt", "w")
-        for i in range(3):
-            defaults_file.write("None")
-            defaults_file.write("\n")
-        defaults_file.close()
-        Window.delete_defaults_success_message = QMessageBox()
-        Window.delete_defaults_success_message.setWindowTitle("Info")
-        Window.delete_defaults_success_message.setText('Defaults deleted succesfully!')
-        Window.delete_defaults_success_message.setIcon(QMessageBox.Information)
-        Window.delete_defaults_success_message.setStandardButtons(QMessageBox.Ok)
+        none_content = [[], [], "None"]
+        with open("files/defaults.txt", "w") as defaults_file:
+            defaults_file.write(json.dumps(none_content))
 
-        x = Window.delete_defaults_success_message.exec_()
+        set_defaults_success_message = QMessageBox(icon=QMessageBox.Information, text="Defaults deleted succesfully!")
+        set_defaults_success_message.setWindowTitle("Info")
+        x = set_defaults_success_message.exec_()
 
 def get_thumbnail(path):
     vid = FileVideoStream(path).start()
     thumbnail = vid.read()
+    vid.stop()
     thumbnail = cv2.resize(thumbnail, (240, 135))
     return thumbnail
