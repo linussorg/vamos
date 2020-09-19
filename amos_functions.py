@@ -23,8 +23,8 @@ def check_pos(first, second, thresh):
     else:
         return False
 
-def analyse(videopath, xmlpath, folderpath, VideoID_List, Window):
-    """Analyse a video. videopath(String): Full path to the processed video. xmlpath(String): Full path to the XML File. folderpath(String): Full path to the folder to store results in. VideoID_List(String): ID of the processing video. Window(Qt Window object): The Window where the UI for the analysation is in."""
+def analyse(videopath, xmlpath, folderpath, VideoID, Window):
+    """Analyse a video. videopath(String): Full path to the processed video. xmlpath(String): Full path to the XML File. folderpath(String): Full path to the folder to store results in. VideoID(String): ID of the processing video. Window(Qt Window object): The Window where the UI for the analysation is in."""
     Window.analysation_status_image.setMovie(Window.loading_animation)
     Window.loading_animation.start()
 
@@ -224,7 +224,7 @@ def analyse(videopath, xmlpath, folderpath, VideoID_List, Window):
             cell.value = str(base_time)[-8:]
 
             cell = sheet.cell(row_number,3)
-            cell.value = VideoID_List
+            cell.value = VideoID
 
             cell = sheet.cell(row_number,4)
             cell.value = str(beginning_video_time + timedelta(seconds = current_seconds))[11:]

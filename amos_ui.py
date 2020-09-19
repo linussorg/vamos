@@ -553,7 +553,7 @@ class AmosWindow(QMainWindow):
 
     def delete_video_selection(self):
         try:
-            self.videopath_label.setText('Please press "Browse or drag & drop a video to select it')
+            self.videopath_label.setText('Please press "Browse" or drag & drop a video to select it')
             self.video_selection_status.setPixmap(QPixmap("files/cross_icon.png"))
             del self.videopath_list
             self.video_thumb.setPixmap(QPixmap("files/default_thumbnail.png"))
@@ -563,7 +563,7 @@ class AmosWindow(QMainWindow):
 
     def delete_xml_selection(self):
         try:
-            self.xmlpath_label.setText('Please press "Browse" or drag & drop a video to select it')
+            self.xmlpath_label.setText('Please press "Browse" or drag & drop an XML file to select it')
             self.xml_selection_status.setPixmap(QPixmap("files/cross_icon.png"))
             del self.xmlpath_list
             self.xml_selection_status.setToolTip("Status:\nNot yet completed!")
@@ -572,7 +572,7 @@ class AmosWindow(QMainWindow):
     
     def delete_folder_selection(self):
         try:
-            self.folderpath_label.setText('Please press "Browse" or drag & drop a video to select it')
+            self.folderpath_label.setText('Please press "Browse" or drag & drop a folder to select it')
             self.folder_selection_status.setPixmap(QPixmap("files/cross_icon.png"))
             del self.folderpath
             self.folder_selection_status.setToolTip("Status:\nNot yet completed!")
@@ -606,14 +606,10 @@ class AmosWindow(QMainWindow):
     def analyse(self):
         try:
             for i in range(len(self.videopath_list)):
-                print(self.videopath_list)
-                print(self.xmlpath_list)
-                print(self.VideoID_List)
                 analyse(self.videopath_list[i],self.xmlpath_list[i],self.folderpath, self.VideoID_List[i], Window)
             self.analysation_status_image.setPixmap(QPixmap("files/check_icon.png"))
             self.analysation_status_image.setToolTip("Status:\nCompleted!")
         except AttributeError as a:
-            print(a)
             self.analyse_error_message = QMessageBox()
             self.analyse_error_message.setWindowTitle("File selection missing!")
             self.analyse_error_message.setText('The analysation algorithm needs three infos:\n    1. The video to process.\n    2. The corresponding XML file to get information like the \n        duration, resolution and frame rate.\n    3. The folder where it saves images of frames with meteors \n        and the spreadsheet.')
