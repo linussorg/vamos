@@ -1,14 +1,13 @@
 #Importing all modules
-import cv2, time, datetime, numpy, pandas, os, statistics, imutils, shutil, sys, json
-import openpyxl as xl
+import cv2, datetime, numpy, pandas, os, statistics, imutils, shutil, sys, json
 from xml.dom import minidom
 from datetime import timedelta
 from imutils.video import FileVideoStream
 from bokeh.plotting import figure, show, output_file
 from bokeh.models import HoverTool, ColumnDataSource
-from PyQt5.QtWidgets import QMessageBox, QFileDialog
-from PyQt5.QtGui import QPixmap, QImage
-from PyQt5.QtCore import QSize
+from PyQt5.QtWidgets import QMessageBox, QFileDialog, QProgressDialog
+from PyQt5.QtCore import Qt, QTime
+from PyQt5.QtGui import QCursor, QFont
     
 def check_pos(first, second, thresh):
     f_x = first[0]
@@ -23,13 +22,32 @@ def check_pos(first, second, thresh):
     else:
         return False
 
-def analyse(videopath, xmlpath, folderpath, VideoID, Window):
-    """Analyse a video. videopath(String): Full path to the processed video. xmlpath(String): Full path to the XML File. folderpath(String): Full path to the folder to store results in. VideoID(String): ID of the processing video. Window(Qt Window object): The Window where the UI for the analysation is in."""
-    Window.analysation_status_image.setMovie(Window.loading_animation)
-    Window.loading_animation.start()
+def analyse(videopath, xmlpath, folderpath, VideoID, Window, use_xml):
+    """
+    Analyse a video. 
+    
+    videopath(String): Full path to the processed video. 
+    
+    xmlpath(String): Full path to the XML File. 
+    
+    folderpath(String): Full path to the folder to store results in. 
+    
+    VideoID(String): ID of the processing video. 
+    
+    Window(Qt Window object): The Window where the UI for the analysation is in.
+    
+    use_xml(Bool): Whether to use an xml file for the video starting time.
+    """
 
     #Reading Files
-    video = FileVideoStream(videopath).start()
+    if os.path.isfile(videopath):
+        video = FileVideoStream(videopath).start()
+    else:
+        video_not_found = QMessageBox(icon=QMessageBox.Critical, text="The selected Video does not exist.")
+        video_not_found.setWindowTitle("Video not found")
+        video_not_found.exec_()
+        return (False, {})
+
     black = cv2.imread('files/black.png', 0)
 
     try:
@@ -57,36 +75,36 @@ def analyse(videopath, xmlpath, folderpath, VideoID, Window):
     
     status_list=[None,None]
     times=[]
+
+    length = Window.length
+    Fps = Window.Fps
+    Height = Window.Height
+    Width = Window.Width
     
-    #Reading and processing the XML-file
-    XML_File = minidom.parse(xmlpath)
-    creationDate = XML_File.getElementsByTagName('CreationDate')
-    creationDate = creationDate[0].attributes['value'].value
+    if use_xml:
+        #Reading and processing the XML-file
+        try:
+            XML_File = minidom.parse(xmlpath)
+        except FileNotFoundError:
+            xml_not_found = QMessageBox(icon=QMessageBox.Critical, text="The selected XML file does not exist.")
+            xml_not_found.setWindowTitle("XML not found")
+            xml_not_found.exec_()
+            return (False, {})
+        try:
+            creationDate = XML_File.getElementsByTagName('CreationDate')
+            creationDate = creationDate[0].attributes['value'].value
 
-    length = XML_File.getElementsByTagName('Duration')
-    length = length[0].attributes['value'].value
-    length = int(length)
+            year, month, day, hour, minute, second = int(creationDate[:4]), int(creationDate[5:7]), int(creationDate[8:10]), int(creationDate[11:13]), int(creationDate[14:16]), int(creationDate[17:19])
+        except IndexError:
+            xml_not_valid = QMessageBox(icon=QMessageBox.Critical, text='The selected XML file is not valid, the key "creationDate" and its value is missing.')
+            xml_not_valid.setWindowTitle("XML not valid")
+            xml_not_valid.exec_()
+            return (False, {})
 
-    Fps = XML_File.getElementsByTagName('VideoFrame')
-    Fps = Fps[0].attributes['captureFps'].value
-    Fps = int(Fps[:-1])
-
-    Width = XML_File.getElementsByTagName('VideoLayout')
-    Width = Width[0].attributes['pixel'].value
-    Width = int(Width)
-
-    Height = XML_File.getElementsByTagName('VideoLayout')
-    Height = Height[0].attributes['numOfVerticalLine'].value
-    Height = int(Height)
-
-    year = int(creationDate[:4])
-    month = int(creationDate[5:7])
-    day = int(creationDate[8:10])
-    hour = int(creationDate[11:13])
-    minute = int(creationDate[14:16])
-    second = int(creationDate[17:19])
-
-    base_time = datetime.datetime(year, month, day, hour, minute, second)
+        base_time = datetime.datetime(year, month, day, hour, minute, second)
+    else:
+        base_time = Window.base_time
+            
     beginning_video_time = datetime.datetime(1, 1, 1, 0, 0, 0)
     
     len_mul = Height//1080
@@ -96,18 +114,30 @@ def analyse(videopath, xmlpath, folderpath, VideoID, Window):
     frame_number = 1
     
     #Processing the Excel-File
-    global wb
-    wb = xl.load_workbook('files/Results_template.xlsx')
-    sheet = wb['Daten']
-    base = "0000000"
-    meteor_count = 0
+    sheet = Window.sheet
     detection_count = 0
 
     meteor_data = {}
+
+    Window.analysation_status_image.setMovie(Window.loading_animation)
+    Window.loading_animation.start()
+
+    Window.analysation_progressdialog = QProgressDialog("Analysing the video... \n\nEstimated remaining time: \nCalculating...", "Exit", 1, 100, Window)
+
+    t = QTime()
+    t.start()
+    frames_since_reset = 1
     
-    for i in range(length):
+    for _ in range(length):
+        frames_since_reset += 1
+        if frame_number % 100 == 0:
+            t.restart()
+            frames_since_reset = 1
         progress_percent = frame_number / length * 100
-        Window.analysation_progressbar.setProperty("value", progress_percent)
+        Window.analysation_progressdialog.setValue(progress_percent)
+        Window.remaining_seconds = round((length-frame_number)*((t.elapsed()/frames_since_reset)/1000))+1
+        Window.remaining_time = str(datetime.timedelta(seconds=Window.remaining_seconds))
+        Window.analysation_progressdialog.setLabelText(f"Analysing the video... \n\nEstimated remaining time: \n{Window.remaining_time} s")
 
         #Reading current frame
         frame = video.read()
@@ -117,19 +147,16 @@ def analyse(videopath, xmlpath, folderpath, VideoID, Window):
 
         #Preparing the Video for calculations
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
         gray = cv2.GaussianBlur(gray,(20*len_mul+1, 20*len_mul+1),0)
 
         if ref_frame is None:
             ref_frame = gray
-            print("Reference frame is first frame.")
             status_list=[0]
             continue
         if frame_number%1000 == 0:
             ref_frame = gray
-            print("Frame reset after 1000 frames")
 
-        #Launch the draw_grid function
+        #Draw the grid
         x_grid = 8
         y_grid = 5
 
@@ -158,6 +185,7 @@ def analyse(videopath, xmlpath, folderpath, VideoID, Window):
         if len(cnts) > 5:
             ref_frame = gray
             print("Frame was reset because more than 5 Meteors")
+            continue
         else:
             for contour in cnts:
                 if cv2.contourArea(contour) < 60*ar_mul or cv2.contourArea(contour) > 4000*ar_mul:
@@ -174,7 +202,7 @@ def analyse(videopath, xmlpath, folderpath, VideoID, Window):
                 cv2.putText(frame, "Meteor", (x-border,y-text_border), cv2.FONT_HERSHEY_SIMPLEX, 1*len_mul,(100,255,0),1,cv2.LINE_AA)
                 average_x = x+(w//2)
                 average_y = y+(h//2)
-                meteor_data[f"{frame_number}_meteor{detection_count}"] = {"position" : (average_x, average_y), "frame" : [frame_number]}
+                meteor_data[f"signal_{detection_count}"] = {"position" : (average_x, average_y), "frame" : [frame_number]}
 
 
         #Return if a meteor was detected
@@ -183,8 +211,7 @@ def analyse(videopath, xmlpath, folderpath, VideoID, Window):
 
         #Return the Start and End time of the meteor
         if status_list[-1]==1 and status_list[-2]==0: #If the meteor appeared
-            meteor_count+=1
-            count_digits = len(str(meteor_count))
+            Window.meteor_count+=1
             times.append(time)
 
             start_meteor= [average_x, average_y]
@@ -213,9 +240,10 @@ def analyse(videopath, xmlpath, folderpath, VideoID, Window):
 
             current_meteor_start = base_time + timedelta(seconds = current_seconds)
 
-            row_number = meteor_count+1
+            row_number = Window.meteor_count+1
             cell = sheet.cell(row_number,1)
-            MeteorID = "M-"+base[:-count_digits-1]+str(meteor_count)
+            MeteorID = "M-"+"%07d" % Window.meteor_count
+            MeteorID_List.append(MeteorID)
             MeteorID_List.append(MeteorID)
             MeteorID_List.append(MeteorID)
             cell.value = MeteorID
@@ -245,7 +273,7 @@ def analyse(videopath, xmlpath, folderpath, VideoID, Window):
             meteor_length = current_meteor_end - current_meteor_start
 
             if meteor_length > timedelta(seconds=5) or meteor_length < timedelta(seconds=0.08):
-                meteor_count += -1
+                Window.meteor_count += -1
                 times.pop() #Remove the beginning from the list
                 position_names.pop()
                 position_names.pop()
@@ -327,7 +355,7 @@ def analyse(videopath, xmlpath, folderpath, VideoID, Window):
 
         key = cv2.waitKey(1)
 
-        if key == 27:
+        if key == 27 or Window.analysation_progressdialog.wasCanceled():
             if status == 1:
                 times.append(time)
 
@@ -349,24 +377,17 @@ def analyse(videopath, xmlpath, folderpath, VideoID, Window):
 
         frame_number+=1
 
+    Window.analysation_progressdialog.setValue(100)
+
     video.stop()
     
     #Close all Windows
     cv2.destroyWindow('AMOS - Analysation')
     cv2.destroyWindow('Additional details - AMOS')
 
-    try:
-        wb.save(f'{folderpath}/Results.xlsx')
-    except PermissionError:
-        Window.spreadsheet_opened_error = QMessageBox()
-        Window.spreadsheet_opened_error.setWindowTitle("Spreadsheet still opened!")
-        Window.spreadsheet_opened_error.setText('You have your spreadsheet still opened! Close it and press "Save spreadsheet" again, otherwise ALL DATA WILL BE LOST!')
-        Window.spreadsheet_opened_error.setIcon(QMessageBox.Warning)
-        Window.spreadsheet_opened_error.setStandardButtons(QMessageBox.Close)
+    meteors = generate_results(meteor_data, len_mul, ar_mul)
 
-        x = Window.spreadsheet_opened_error.exec_()
-
-    print("Sucessfully processed video!")
+    return (True, meteor_data)
     
 def generate_diagram():
     #Preparing the Pandas Dataframe
@@ -402,7 +423,7 @@ def generate_diagram():
         #print("No meteors found yet!")
 
 def save_spreadsheet(Window):
-    wb.save(f'{Window.folderpath}/Results.xlsx')
+    Window.wb.save(f'{Window.folderpath}/Results.xlsx')
     
 def apply_defaults(Window):
     with open("files/defaults.txt", "r") as defaults_file:
@@ -421,21 +442,21 @@ def apply_defaults(Window):
 def set_defaults(Window):
     select_video_info = QMessageBox(icon=QMessageBox.Information, text="In the following dialog, select your default video(s).")
     select_video_info.setWindowTitle("Info")
-    x = select_video_info.exec_()
+    select_video_info.exec_()
 
     Window.default_videopath_list = QFileDialog.getOpenFileNames(parent=Window, filter="MP4 Files (*.mp4)")
     Window.default_videopath_list = Window.default_videopath_list[0]
     if Window.default_videopath_list != []: #If the user didn't cancel the selection
         select_xml_info = QMessageBox(icon=QMessageBox.Information, text="In the following dialog, select your default XML(s).")
         select_xml_info.setWindowTitle("Info")
-        x = select_xml_info.exec_()
+        select_xml_info.exec_()
 
         Window.default_xmlpath_list = QFileDialog.getOpenFileNames(parent=Window, filter="XML Files (*.xml)")
         Window.default_xmlpath_list = Window.default_xmlpath_list[0]
         if Window.default_xmlpath_list != []: #If the user didn't cancel the selection
             select_folder_info = QMessageBox(icon=QMessageBox.Information, text="In the following dialog, select your default folder to store results in.")
             select_folder_info.setWindowTitle("Info")
-            x = select_folder_info.exec_()
+            select_folder_info.exec_()
 
             Window.default_folderpath = QFileDialog.getExistingDirectory(parent=Window)
             if Window.default_folderpath != "": #If the user didn't cancel the selection
@@ -445,7 +466,7 @@ def set_defaults(Window):
 
                 set_defaults_success_message = QMessageBox(icon=QMessageBox.Information, text="Defaults set succesfully!")
                 set_defaults_success_message.setWindowTitle("Info")
-                x = set_defaults_success_message.exec_()
+                set_defaults_success_message.exec_()
 
 def delete_defaults(Window):
     delete_continue = QMessageBox.question(Window, "Do you want to delete?", "Are you sure that you want to delete the defaults?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
@@ -457,11 +478,67 @@ def delete_defaults(Window):
 
         set_defaults_success_message = QMessageBox(icon=QMessageBox.Information, text="Defaults deleted succesfully!")
         set_defaults_success_message.setWindowTitle("Info")
-        x = set_defaults_success_message.exec_()
+        set_defaults_success_message.exec_()
 
 def get_thumbnail(path):
+    if os.path.isfile(path):
+        vid = FileVideoStream(path).start()
+    else:
+        video_not_found = QMessageBox(icon=QMessageBox.Critical, text="One of the videos was not found!")
+        video_not_found.setWindowTitle("Video not found")
+        video_not_found.exec_()
+        return numpy.array(None)
     vid = FileVideoStream(path).start()
     thumbnail = vid.read()
     vid.stop()
     thumbnail = cv2.resize(thumbnail, (240, 135))
     return thumbnail
+
+def generate_results(meteor_data, len_mul, ar_mul):
+    if meteor_data == {}:
+        return {}
+    meteors = {}
+    x_positions_list = []
+    y_positions_list = []
+    meteor_list_count = 1
+    for key in meteor_data.keys():
+        if key == "signal_1":
+            current_position = meteor_data[key]['position']
+            x_positions_list.append(current_position[0])
+            y_positions_list.append(current_position[1])
+            meteors["M-"+"%07d" % meteor_list_count] = {"position" : current_position, "frames" : meteor_data[key]['frame']}
+            continue
+        previous_position = current_position
+        current_position = meteor_data[key]['position']
+        if check_pos(current_position, previous_position, 200*len_mul):
+            x_positions_list.append(current_position[0])
+            y_positions_list.append(current_position[1])
+            meteors["M-"+"%07d" % meteor_list_count]["frames"].append(meteor_data[key]['frame'][0])
+        else:
+            meteors["M-"+"%07d" % meteor_list_count]["position"] = (int(statistics.mean(x_positions_list)),int(statistics.mean(y_positions_list)))
+            meteors["M-"+"%07d" % meteor_list_count]["frames"] = sorted(set(meteors["M-"+"%07d" % meteor_list_count]["frames"]))
+            x_positions_list.clear()
+            y_positions_list.clear()
+            meteor_list_count += 1
+            x_positions_list.append(current_position[0])
+            y_positions_list.append(current_position[1])
+            meteors["M-"+"%07d" % meteor_list_count] = {"position" : current_position, "frames" : meteor_data[key]['frame']}
+    meteors["M-"+"%07d" % meteor_list_count]["position"] = (int(statistics.mean(x_positions_list)),int(statistics.mean(y_positions_list)))
+    meteors["M-"+"%07d" % meteor_list_count]["frames"] = sorted(set(meteors["M-"+"%07d" % meteor_list_count]["frames"]))
+    return meteors
+
+def write_ama_file(ama_filepath, meteor_data, len_mul, ar_mul, base_time_list, videopath_list, xmlpath_list, folderpath, duration_list, fps_list, resolution_list):
+    with open(ama_filepath, "w") as f:
+        file_string = ""
+        file_string += json.dumps([videopath_list, xmlpath_list, folderpath]) + "\n"
+        file_string += json.dumps(base_time_list) + "\n"
+        file_string += json.dumps(duration_list) + "\n"
+        file_string += json.dumps(fps_list) + "\n"
+        file_string += json.dumps(resolution_list) + "\n"
+        file_string += json.dumps(generate_results(meteor_data, len_mul, ar_mul)) + "\n"
+        f.write(file_string)
+
+
+#temp_meteor_data = {'signal_1': {'position': (1410, 931), 'frame': [52]}, 'signal_2': {'position': (1425, 939), 'frame': [53]}, 'signal_3': {'position': (1440, 947), 'frame': [54]}, 'signal_4': {'position': (1456, 955), 'frame': [55]}, 'signal_5': {'position': (1473, 963), 'frame': [56]}, 'signal_6': {'position': (1490, 972), 'frame': [57]}, 'signal_7': {'position': (1507, 980), 'frame': [58]}, 'signal_8': {'position': (1525, 989), 'frame': [59]}, 'signal_9': {'position': (1461, 957), 'frame': [59]}, 'signal_10': {'position': (1474, 964), 'frame': [60]}, 'signal_11': {'position': (1475, 965), 'frame': [61]}, 'signal_12': {'position': (1475, 964), 'frame': [62]}, 'signal_13': {'position': (1474, 964), 'frame': [63]}, 'signal_14': {'position': (1473, 964), 'frame': [64]}, 'signal_15': {'position': (1471, 962), 'frame': [65]}, 'signal_16': {'position': (1482, 968), 'frame': [66]}, 'signal_17': {'position': (1455, 954), 'frame': [66]}, 'signal_18': {'position': (1484, 969), 'frame': [67]}, 'signal_19': {'position': (1457, 955), 'frame': [67]}, 'signal_20': {'position': (1484, 968), 'frame': [68]}, 'signal_21': {'position': (904, 480), 'frame': [245]}, 'signal_22': {'position': (909, 481), 'frame': [246]}, 'signal_23': {'position': (915, 482), 'frame': [247]}, 'signal_24': {'position': (921, 483), 'frame': [248]}, 'signal_25': {'position': (928, 484), 'frame': [249]}, 'signal_26': {'position': (934, 485), 'frame': [250]}, 'signal_27': {'position': (941, 486), 'frame': [251]}, 'signal_28': {'position': (948, 487), 'frame': [252]}, 'signal_29': {'position': (955, 488), 'frame': [253]}, 'signal_30': {'position': (962, 489), 'frame': [254]}, 'signal_31': {'position': (967, 491), 'frame': [255]}, 'signal_32': {'position': (964, 492), 'frame': [256]}, 'signal_33': {'position': (967, 493), 'frame': [257]}, 'signal_34': {'position': (972, 495), 'frame': [258]}, 'signal_35': {'position': (982, 496), 'frame': [259]}, 'signal_36': {'position': (988, 497), 'frame': [260]}, 'signal_37': {'position': (1012, 500), 'frame': [266]}, 'signal_38': {'position': (1009, 498), 'frame': [267]}, 'signal_39': {'position': (1008, 497), 'frame': [268]}, 'signal_40': {'position': (1008, 497), 'frame': [269]}, 'signal_41': {'position': (1009, 496), 'frame': [270]}, 'signal_42': {'position': (1008, 496), 'frame': [271]}, 'signal_43': {'position': (1009, 496), 'frame': [272]}, 'signal_44': {'position': (1008, 496), 'frame': [273]}, 'signal_45': {'position': (1007, 496), 'frame': [274]}, 'signal_46': {'position': (1006, 495), 'frame': [275]}, 'signal_47': {'position': (1006, 495), 'frame': [276]}, 'signal_48': {'position': (1006, 495), 'frame': [277]}, 'signal_49': {'position': (1006, 496), 'frame': [278]}, 'signal_50': {'position': (1005, 496), 'frame': [279]}, 'signal_51': {'position': (1004, 495), 'frame': [280]}, 'signal_52': {'position': (1004, 495), 'frame': [281]}, 'signal_53': {'position': (1003, 495), 'frame': [282]}, 'signal_54': {'position': (1003, 495), 'frame': [283]}, 'signal_55': {'position': (1006, 496), 'frame': [284]}, 'signal_56': {'position': (1005, 495), 'frame': [285]}, 'signal_57': {'position': (1002, 495), 'frame': [286]}, 'signal_58': {'position': (1003, 495), 'frame': [287]}, 'signal_59': {'position': (1002, 495), 'frame': [288]}, 'signal_60': {'position': (1002, 495), 'frame': [289]}, 'signal_61': {'position': (1000, 496), 'frame': [290]}, 'signal_62': {'position': (1001, 496), 'frame': [291]}, 'signal_63': {'position': (1000, 496), 'frame': [292]}, 'signal_64': {'position': (1061, 506), 'frame': [293]}, 'signal_65': {'position': (999, 496), 'frame': [293]}, 'signal_66': {'position': (999, 496), 'frame': [294]}, 'signal_67': {'position': (1001, 496), 'frame': [295]}, 'signal_68': {'position': (1000, 496), 'frame': [296]}, 'signal_69': {'position': (1000, 496), 'frame': [297]}, 'signal_70': {'position': (995, 495), 'frame': [298]}, 'signal_71': {'position': (994, 495), 'frame': [299]}, 'signal_72': {'position': (994, 495), 'frame': [300]}, 'signal_73': {'position': (995, 495), 'frame': [301]}, 'signal_74': {'position': (995, 495), 'frame': [302]}, 'signal_75': {'position': (995, 495), 'frame': [303]}, 'signal_76': {'position': (995, 495), 'frame': [304]}, 'signal_77': {'position': (994, 495), 'frame': [305]}, 'signal_78': {'position': (995, 495), 'frame': [306]}, 'signal_79': {'position': (996, 495), 'frame': [307]}, 'signal_80': {'position': (995, 494), 'frame': [308]}, 'signal_81': {'position': (994, 494), 'frame': [309]}, 'signal_82': {'position': (995, 495), 'frame': [310]}, 'signal_83': {'position': (994, 495), 'frame': [311]}, 'signal_84': {'position': (994, 495), 'frame': [312]}, 'signal_85': {'position': (994, 495), 'frame': [313]}, 'signal_86': {'position': (994, 494), 'frame': [314]}, 'signal_87': {'position': (995, 494), 'frame': [315]}, 'signal_88': {'position': (995, 495), 'frame': [316]}, 'signal_89': {'position': (994, 494), 'frame': [317]}, 'signal_90': {'position': (995, 495), 'frame': [318]}, 'signal_91': {'position': (995, 495), 'frame': [319]}, 'signal_92': {'position': (995, 494), 'frame': [320]}, 'signal_93': {'position': (994, 494), 'frame': [321]}, 'signal_94': {'position': (994, 494), 'frame': [322]}, 'signal_95': {'position': (992, 494), 'frame': [323]}}
+
+#write_ama_file("D:/Jugend forscht/Jugend forscht 2021/AMOS/Tests/test_results.ama", temp_meteor_data, 1, 1, [[2020, 6, 8, 15, 10, 30],[2020, 6, 9, 10, 12, 10]], ["D:/Jugend forscht/Jugend forscht 2021/AMOS/Tests/V-0001.mp4", "D:/Jugend forscht/Jugend forscht 2021/AMOS/Tests/V-0002.mp4"], ["D:/Jugend forscht/Jugend forscht 2021/AMOS/Tests/V-0001.XML", "D:/Jugend forscht/Jugend forscht 2021/AMOS/Tests/V-0002.XML"], "D:/Jugend forscht/Jugend forscht 2021/AMOS/Tests/Results", [1000, 2000], [25, 50], [[3840, 2160], [1920, 1080]])
