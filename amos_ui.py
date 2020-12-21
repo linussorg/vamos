@@ -1,12 +1,22 @@
-import sys, os, datetime, cv2, json
-import xml.etree.ElementTree as ET
+import cv2
+import datetime
+import json
+import os
+import sys
+import xml.etree.ElementTree as Et
+
 import openpyxl as xl
-from PyQt5.QtWidgets import QWidget, QLabel, QGridLayout, QSpacerItem, QPushButton, QGroupBox, QHBoxLayout, QVBoxLayout, QProgressBar, QMenuBar, QMenu, QMainWindow, QApplication, QAction, QStatusBar, QFileDialog, QSizePolicy, QMessageBox, QSpinBox, QDialog, QCheckBox, QRadioButton, QProgressDialog, QTableView, QSlider, QStyle
 from PyQt5.QtCore import Qt, QSize, QAbstractTableModel, QUrl
-from PyQt5.QtGui import QFont, QIcon, QPixmap, QCursor, QImage, QFontDatabase, QMovie
+from PyQt5.QtGui import QFont, QIcon, QPixmap, QCursor, QImage, QMovie
+from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from PyQt5.QtMultimediaWidgets import QVideoWidget
-from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent, QMediaPlaylist
-from amos_functions import analyse, get_thumbnail, save_spreadsheet, apply_defaults, set_defaults, delete_defaults, write_ama_file
+from PyQt5.QtWidgets import QWidget, QLabel, QGridLayout, QSpacerItem, QPushButton, QGroupBox, QHBoxLayout, \
+    QVBoxLayout, QMenuBar, QMenu, QMainWindow, QApplication, QAction, QStatusBar, QFileDialog, QSizePolicy, \
+    QMessageBox, QSpinBox, QDialog, QCheckBox, QRadioButton, QTableView, QSlider, QSplitter, QTabWidget, \
+    QDoubleSpinBox, QLineEdit, QComboBox
+
+from amos_functions import analyse, get_thumbnail, save_spreadsheet, apply_defaults, set_defaults, delete_defaults, \
+    write_amos_file
 
 StyleSheet = """
 QMainWindow#AnalysationWindow {
@@ -16,6 +26,54 @@ QMainWindow#AnalysationWindow {
 QWidget#default_widget {
     background-color:#121212;
     color:white;
+}
+QDialog {
+    background-color:#121212;
+    color:white;
+}
+QDialog QLabel {
+    background-color:#121212;
+    color:white;
+}
+QDialog QPushButton {
+    background-color:transparent;
+    color:white;
+    border-style:solid;
+    border-width:2px;
+    border-radius:4px;
+    border-color:white;
+    min-height: 20px;
+    min-width: 60px;
+}
+QDialog QPushButton:default {
+    background-color:transparent;
+    color:#2894E0;
+    border-style:solid;
+    border-width:2px;
+    border-radius:4px;
+    border-color:#2894E0;
+    min-height: 20px;
+    min-width: 60px;
+}
+QDialog QPushButton:default:hover {
+    background-color:#2894E0;
+    color:#121212;
+    border-style:solid;
+    border-width:2px;
+    border-radius:4px;
+    border-color:#2894E0;
+    min-height: 20px;
+    min-width: 60px;
+}
+QDialog QPushButton:hover {
+    background-color:white;
+    color:#121212;
+    border-style:solid;
+    border-width:2px;
+    border-radius:4px;
+    border-color:white;
+    min-height: 20px;
+    min-width: 60px;
 }
 QLabel#video_thumb {
     border-style:solid;
@@ -141,7 +199,7 @@ QPushButton#delete_button:hover {
 QLabel#default_label {
     color:#eeeeee;
 }
-QSpinBox {
+QSpinBox#styled_spinbox{
     padding-left: 8px;
     background-color:transparent;
     color:#eeeeee;
@@ -172,18 +230,58 @@ QTableView {
 QPushButton#video_button {
     background-color:transparent;
 }
+QSlider::groove:horizontal {
+    border: 1px solid #999999;
+    height: 2px; 
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #B1B1B1, stop:1 #c4c4c4);
+    margin: 2px 0;
+}
+QSlider::handle:horizontal {
+    background: red;
+    border: 1px solid #121212;
+    width: 18px;
+    height: 25px;
+    margin: -10px 0px; /* handle is placed by default on the contents rect of the groove. Expand outside the groove */
+    border-radius: 10px;
+}
+QSlider::add-page:qlineargradient {
+    background: lightgrey;
+    border-top-right-radius: 3px;
+    border-bottom-right-radius: 3px;
+    border-top-left-radius: 0px;
+    border-bottom-left-radius: 0px;
+}
+QSlider::sub-page:qlineargradient {
+    background: red;
+    border-top-right-radius: 0px;
+    border-bottom-right-radius: 0px;
+    border-top-left-radius: 3px;
+    border-bottom-left-radius: 3px;
+}
+QProgressDialog QProgressBar {
+    min-height: 12px;
+    max-height: 12px;
+    border-radius: 6px;
+    text-align: center;
+}
+QProgressDialog QProgressBar::chunk {
+    border-radius: 6px;
+    background-color: #FF5500;
+}
 """
-class Drop_Label(QLabel):
+
+
+class DropLabel(QLabel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAcceptDrops(True)
-        self.pathtype=""
+        self.pathtype = ""
 
-    def defineType(self, type_define):
+    def define_type(self, type_define):
         self.pathtype = type_define
 
     def dragEnterEvent(self, event):
-        path=str(event.mimeData().urls()[0].toLocalFile())
+        path = str(event.mimeData().urls()[0].toLocalFile())
         if event.mimeData().hasUrls and path[-4:].upper() == ".MP4" and self.pathtype == "video":
             event.accept()
         elif event.mimeData().hasUrls and path[-4:].upper() == ".XML" and self.pathtype == "xml":
@@ -222,16 +320,19 @@ class Drop_Label(QLabel):
         else:
             event.ignore()
 
+
 class PickSpinbox(QSpinBox):
     def __init__(self, *args):
         QSpinBox.__init__(self, *args)
-        
+
         self.setFont(Window.font_bold_14)
         self.setWrapping(True)
         self.setAlignment(Qt.AlignCenter)
-    
+        self.setObjectName("styled_spinbox")
+
     def textFromValue(self, value):
         return "%02d" % value
+
 
 class DatePickerPopup(QDialog):
     def __init__(self):
@@ -239,86 +340,85 @@ class DatePickerPopup(QDialog):
 
         self.setObjectName("default_widget")
         self.setWindowTitle("Select the video starting time and date")
-        self.initUI()
+        self.init_ui()
 
-    def initUI(self):
+    def init_ui(self):
         self.now = datetime.datetime.now()
 
         self.datetime_group = QGroupBox(self)
         self.datetime_group.setTitle("First video")
         self.datetime_group.setFont(Window.font_normal_10)
         self.datetime_group.setFlat(True)
-        self.datetime_group.setGeometry(10,10, 330, 100)
+        self.datetime_group.setGeometry(10, 10, 330, 100)
 
         self.date_label = QLabel(self.datetime_group, text="Date:")
-        self.date_label.setGeometry(10,20,60,28)
+        self.date_label.setGeometry(10, 20, 60, 28)
         self.date_label.setObjectName("default_label")
         self.date_label.setFont(Window.font_bold_14)
 
         self.time_label = QLabel(self.datetime_group, text="Time:")
-        self.time_label.setGeometry(10,60,60,28)
+        self.time_label.setGeometry(10, 60, 60, 28)
         self.time_label.setObjectName("default_label")
         self.time_label.setFont(Window.font_bold_14)
 
         self.day_month_separator = QLabel(self.datetime_group, text=".")
-        self.day_month_separator.move(145,22)
+        self.day_month_separator.move(145, 22)
         self.day_month_separator.setObjectName("time_label")
         self.day_month_separator.setFont(Window.font_bold_15)
 
         self.month_year_separator = QLabel(self.datetime_group, text=".")
-        self.month_year_separator.move(220,22)
+        self.month_year_separator.move(220, 22)
         self.month_year_separator.setObjectName("time_label")
         self.month_year_separator.setFont(Window.font_bold_15)
 
         self.hour_minute_separator = QLabel(self.datetime_group, text=":")
-        self.hour_minute_separator.move(145,60)
+        self.hour_minute_separator.move(145, 60)
         self.hour_minute_separator.setObjectName("time_label")
         self.hour_minute_separator.setFont(Window.font_bold_15)
 
         self.minute_second_separator = QLabel(self.datetime_group, text=":")
-        self.minute_second_separator.move(220,60)
+        self.minute_second_separator.move(220, 60)
         self.minute_second_separator.setObjectName("time_label")
         self.minute_second_separator.setFont(Window.font_bold_15)
 
         self.day_spin_box = PickSpinbox(self.datetime_group)
         self.day_spin_box.move(80, 20)
-        self.day_spin_box.setRange(1,31)
+        self.day_spin_box.setRange(1, 31)
         self.day_spin_box.setValue(self.now.day)
 
         self.month_spin_box = PickSpinbox(self.datetime_group)
         self.month_spin_box.move(155, 20)
-        self.month_spin_box.setRange(1,12)
+        self.month_spin_box.setRange(1, 12)
         self.month_spin_box.setValue(self.now.month)
 
         self.year_spin_box = PickSpinbox(self.datetime_group)
         self.year_spin_box.move(230, 20)
-        self.year_spin_box.setRange(1,9999)
+        self.year_spin_box.setRange(1, 9999)
         self.year_spin_box.setValue(self.now.year)
-
 
         self.hours_spin_box = PickSpinbox(self.datetime_group)
         self.hours_spin_box.move(80, 60)
-        self.hours_spin_box.setRange(0,23)
+        self.hours_spin_box.setRange(0, 23)
         self.hours_spin_box.setValue(self.now.hour)
 
         self.minutes_spin_box = PickSpinbox(self.datetime_group)
         self.minutes_spin_box.move(155, 60)
-        self.minutes_spin_box.setRange(0,59)
+        self.minutes_spin_box.setRange(0, 59)
         self.minutes_spin_box.setValue(self.now.minute)
 
         self.seconds_spin_box = PickSpinbox(self.datetime_group)
         self.seconds_spin_box.move(230, 60)
-        self.seconds_spin_box.setRange(0,59)
+        self.seconds_spin_box.setRange(0, 59)
         self.seconds_spin_box.setValue(self.now.second)
 
         self.write_xml_box = QCheckBox(self)
-        self.write_xml_box.move(120,130)
+        self.write_xml_box.move(120, 130)
         self.write_xml_box.setText("Write XML File")
         self.write_xml_box.setChecked(True)
         self.write_xml_box.setFont(Window.font_normal_10)
 
         self.confirm_date_button = QPushButton(self)
-        self.confirm_date_button.setGeometry(250,120, 100, 32)
+        self.confirm_date_button.setGeometry(250, 120, 100, 32)
         self.confirm_date_button.setText("CONFIRM")
         self.confirm_date_button.setFont(Window.font_bold_10)
         self.confirm_date_button.setObjectName("secondary_button")
@@ -327,7 +427,9 @@ class DatePickerPopup(QDialog):
         self.confirm_date_button.clicked.connect(self.confirm_date)
 
     def confirm_date(self):
-        Window.base_time = datetime.datetime(self.year_spin_box.value(), self.month_spin_box.value(), self.day_spin_box.value(), self.hours_spin_box.value(), self.minutes_spin_box.value(), self.seconds_spin_box.value())
+        Window.base_time = datetime.datetime(self.year_spin_box.value(), self.month_spin_box.value(),
+                                             self.day_spin_box.value(), self.hours_spin_box.value(),
+                                             self.minutes_spin_box.value(), self.seconds_spin_box.value())
         if self.write_xml_box.isChecked():
             for Window.video_index in range(len(Window.videopath_list)):
                 meta_data_video = cv2.VideoCapture(Window.videopath_list[Window.video_index])
@@ -337,41 +439,327 @@ class DatePickerPopup(QDialog):
                 Window.Height = int(meta_data_video.get(cv2.CAP_PROP_FRAME_HEIGHT))
                 Window.Width = int(meta_data_video.get(cv2.CAP_PROP_FRAME_WIDTH))
 
-                non_realtime_meta = ET.Element('NonRealTimeMeta')
-                duration = ET.SubElement(non_realtime_meta, 'Duration')
+                non_realtime_meta = Et.Element('NonRealTimeMeta')
+                duration = Et.SubElement(non_realtime_meta, 'Duration')
                 duration.set('value', str(Window.length))
-                creation_date = ET.SubElement(non_realtime_meta, 'CreationDate')
-                creation_date.set('value', '%04d' % self.year_spin_box.value() + '-' + '%02d' % self.month_spin_box.value() + '-' + '%02d' % self.day_spin_box.value() + 'T' + '%02d' % self.hours_spin_box.value() + ':' + '%02d' % self.minutes_spin_box.value() + ':' + '%02d' % self.seconds_spin_box.value() + '+1:00')
-                video_format = ET.SubElement(non_realtime_meta, 'VideoFormat')
-                video_frame = ET.SubElement(video_format, 'VideoFrame')
+                creation_date = Et.SubElement(non_realtime_meta, 'CreationDate')
+                creation_date.set('value',
+                                  '%04d' % self.year_spin_box.value() + '-' + '%02d' % self.month_spin_box.value() +
+                                  '-' + '%02d' % self.day_spin_box.value() + 'T' +
+                                  '%02d' % self.hours_spin_box.value() + ':' + '%02d' % self.minutes_spin_box.value() +
+                                  ':' + '%02d' % self.seconds_spin_box.value() + '+1:00')
+                video_format = Et.SubElement(non_realtime_meta, 'VideoFormat')
+                video_frame = Et.SubElement(video_format, 'VideoFrame')
                 video_frame.set('captureFps', str(Window.Fps))
-                video_layout = ET.SubElement(video_format, 'VideoLayout')
+                video_layout = Et.SubElement(video_format, 'VideoLayout')
                 video_layout.set('pixel', str(Window.Width))
                 video_layout.set('numOfVerticalLine', str(Window.Height))
 
-                xml_data = ET.tostring(non_realtime_meta, "unicode")
-                
-                self.write_xml_path = QFileDialog.getSaveFileName(self, "Select a directory to save the generated XML file.", f"{Window.videopath_list[Window.video_index][:-4]}.XML", "XML Files (*.xml)")
+                xml_data = Et.tostring(non_realtime_meta, "unicode")
+
+                self.write_xml_path = QFileDialog.getSaveFileName(
+                    self,
+                    "Select a directory to save the generated XML file.",
+                    f"{Window.videopath_list[Window.video_index][:-4]}.XML",
+                    "XML Files (*.xml)")
                 self.write_xml_path = self.write_xml_path[0]
 
                 if self.write_xml_path != "":
                     with open(self.write_xml_path, "w") as f:
                         f.write(xml_data)
-            
+
         self.accept()
 
+
+class SettingSpinboxPair(QHBoxLayout):
+    def __init__(self, parent, label, value):
+        QHBoxLayout.__init__(self, parent)
+
+        self.label = QLabel()
+        self.label.setText(label)
+
+        self.spinbox = QSpinBox()
+        self.spinbox.setMaximumWidth(60)
+        self.spinbox.setRange(0, 10000)
+        self.spinbox.setValue(value)
+
+        self.addWidget(self.label)
+        self.addWidget(self.spinbox)
+
+    def change_value(self, value):
+        self.spinbox.setValue(value)
+
+    def get_value(self):
+        return self.spinbox.value()
+
+
+class SettingInputPair(QHBoxLayout):
+    def __init__(self, parent, label, text):
+        QHBoxLayout.__init__(self, parent)
+
+        self.label = QLabel()
+        self.label.setText(label)
+
+        self.text_field = QLineEdit(text)
+        self.text_field.setMaximumWidth(100)
+        self.text_field.setMaxLength(14)
+
+        self.addWidget(self.label)
+        self.addWidget(self.text_field)
+
+    def change_value(self, text):
+        self.text_field.setText(text)
+
+    def get_value(self):
+        return self.text_field.text()
+
+
+class SettingResolutionPair(QHBoxLayout):
+    def __init__(self, parent, label, index):
+        QHBoxLayout.__init__(self, parent)
+
+        self.label = QLabel()
+        self.label.setText(label)
+
+        self.combobox = QComboBox()
+        self.combobox.setMaximumWidth(140)
+        self.combobox.insertItem(0, "VGA (640x480)", (640, 480))
+        self.combobox.insertItem(1, "qHD (960x540)", (960, 540))
+        self.combobox.insertItem(2, "HD (1280x720)", (1280, 720))
+        self.combobox.insertItem(3, "Full HD (1920x1080)", (1920, 1080))
+        self.combobox.insertItem(4, "QHD (2560x1440)", (2560, 1440))
+        self.combobox.insertItem(5, "Ultra HD (3840x2160)", (3840, 2160))
+        self.combobox.setCurrentIndex(index)
+
+        self.addWidget(self.label)
+        self.addWidget(self.combobox)
+
+    def change_value(self, data):
+        index = self.combobox.findText(str(data[0]), Qt.MatchContains)
+        self.combobox.setCurrentIndex(index)
+
+    def get_value(self):
+        return self.combobox.currentData(Qt.UserRole)
+
+
+class SettingDoubleSpinboxPair(QHBoxLayout):
+    def __init__(self, parent, label, value):
+        QHBoxLayout.__init__(self, parent)
+
+        self.label = QLabel()
+        self.label.setText(label)
+
+        self.spinbox = QDoubleSpinBox()
+        self.spinbox.setMaximumWidth(60)
+        self.spinbox.setRange(0, 10000)
+        self.spinbox.setValue(value)
+        self.spinbox.setSingleStep(0.01)
+
+        self.addWidget(self.label)
+        self.addWidget(self.spinbox)
+
+    def change_value(self, value):
+        self.spinbox.setValue(value)
+
+    def get_value(self):
+        return self.spinbox.value()
+
+
+class SettingsWindow(QWidget):
+    def __init__(self):
+        QWidget.__init__(self)
+
+        self.resize(500, 700)
+
+        self.app_icon = QIcon()
+        self.app_icon.addPixmap(QPixmap("files/logo.ico"), QIcon.Normal, QIcon.Off)
+
+        self.setWindowTitle("AMOS - Settings")
+        self.setWindowIcon(self.app_icon)
+
+        self.init_ui()
+
+    def init_ui(self):
+        self.tab_widget = QTabWidget(self)
+        self.tab_widget.resize(500, 700)
+
+        self.values_tab = QWidget(self)
+        self.values_tab.setVisible(False)
+        self.tab_widget.addTab(self.values_tab, "Values")
+
+        self.v_layout = QVBoxLayout(self.values_tab)
+        self.v_layout.setContentsMargins(20, 20, 20, 0)
+
+        self.resolution_label = QLabel(self)
+        self.resolution_label.setText("These settings are dependent on the resolution of the video.\n"
+                                      "The values below are used for Full HD (1920 x 1080).")
+        self.resolution_label.setMaximumHeight(50)
+
+        self.blur = SettingSpinboxPair(self.values_tab, "Blur [px]", 0)
+        self.x_grid = SettingSpinboxPair(self.values_tab, "Horizontal Grid", 0)
+        self.y_grid = SettingSpinboxPair(self.values_tab, "Vertical Grid", 0)
+        self.thresh_value = SettingSpinboxPair(self.values_tab, "Threshold", 0)
+        self.thresh_max_brightness = SettingSpinboxPair(self.values_tab, "Threshold max. brightness", 0)
+        self.dilate = SettingSpinboxPair(self.values_tab, "Dilation [px]", 0)
+        self.max_meteors = SettingSpinboxPair(self.values_tab, "Max. Signals before reference frame reset", 0)
+        self.min_area = SettingSpinboxPair(self.values_tab, "Min. Area [px]", 0)
+        self.max_area = SettingSpinboxPair(self.values_tab, "Max. Area [px]", 0)
+        self.signal_label = SettingInputPair(self.values_tab, "Detection Label", "")
+        self.sort_out_area_difference = SettingSpinboxPair(self.values_tab, "Max. difference between 2 frames [px]", 0)
+        self.max_length = SettingDoubleSpinboxPair(self.values_tab, "Max. Length [s]", 0)
+        self.min_length = SettingDoubleSpinboxPair(self.values_tab, "Min. Length [s]", 0)
+        self.resolution_to_write = SettingResolutionPair(self.values_tab, "Resolution of written images", 0)
+        self.max_distance = SettingSpinboxPair(self.values_tab, "Max. distance [px]", 0)
+        self.max_frames = SettingSpinboxPair(self.values_tab, "Max. frames", 0)
+        self.delete_threshold = SettingSpinboxPair(self.values_tab, "Max. number of marked frames", 0)
+        self.delete_percentage = SettingDoubleSpinboxPair(self.values_tab, "Max. ratio of marked frames", 0)
+
+        self.reset_layout = QHBoxLayout()
+        self.reset_spacer = QSpacerItem(350, 10)
+        self.reset_button = QPushButton("Reset to defaults")
+
+        self.button_layout = QHBoxLayout()
+        self.spacer = QSpacerItem(200, 10)
+        self.ok_button = QPushButton("OK")
+        self.cancel_button = QPushButton("Cancel")
+        self.apply_button = QPushButton("Apply")
+
+        self.reset_layout.addWidget(self.reset_button)
+        self.reset_layout.addItem(self.reset_spacer)
+
+        self.button_layout.addItem(self.spacer)
+        self.button_layout.addWidget(self.ok_button)
+        self.button_layout.addWidget(self.cancel_button)
+        self.button_layout.addWidget(self.apply_button)
+
+        self.v_layout.addWidget(self.resolution_label)
+        self.v_layout.addLayout(self.reset_layout)
+        self.v_layout.addLayout(self.blur)
+        self.v_layout.addLayout(self.x_grid)
+        self.v_layout.addLayout(self.y_grid)
+        self.v_layout.addLayout(self.thresh_value)
+        self.v_layout.addLayout(self.thresh_max_brightness)
+        self.v_layout.addLayout(self.dilate)
+        self.v_layout.addLayout(self.max_meteors)
+        self.v_layout.addLayout(self.min_area)
+        self.v_layout.addLayout(self.max_area)
+        self.v_layout.addLayout(self.signal_label)
+        self.v_layout.addLayout(self.sort_out_area_difference)
+        self.v_layout.addLayout(self.max_length)
+        self.v_layout.addLayout(self.min_length)
+        self.v_layout.addLayout(self.resolution_to_write)
+        self.v_layout.addLayout(self.max_distance)
+        self.v_layout.addLayout(self.max_frames)
+        self.v_layout.addLayout(self.delete_threshold)
+        self.v_layout.addLayout(self.delete_percentage)
+        self.v_layout.addLayout(self.button_layout)
+
+        self.setup_values()
+
+        self.reset_button.clicked.connect(self.reset_to_defaults)
+        self.ok_button.clicked.connect(self.ok_pressed)
+        self.apply_button.clicked.connect(self.apply_pressed)
+        self.cancel_button.clicked.connect(self.close)
+
+    def reset_to_defaults(self):
+        reset_continue = QMessageBox.question(Window, "Do you want to reset?",
+                                              "Are you sure that you want to reset the values to defaults?",
+                                              QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+
+        if reset_continue == QMessageBox.Yes:
+            self.blur.change_value(20)
+            self.x_grid.change_value(8)
+            self.y_grid.change_value(5)
+            self.thresh_value.change_value(20)
+            self.thresh_max_brightness.change_value(255)
+            self.dilate.change_value(2)
+            self.max_meteors.change_value(5)
+            self.min_area.change_value(60)
+            self.max_area.change_value(4000)
+            self.signal_label.change_value("Detection")
+            self.sort_out_area_difference.change_value(4)
+            self.max_length.change_value(10)
+            self.min_length.change_value(0.08)
+            self.resolution_to_write.change_value([960, 540])
+            self.max_distance.change_value(200)
+            self.max_frames.change_value(3)
+            self.delete_threshold.change_value(10)
+            self.delete_percentage.change_value(0.25)
+
+            set_defaults_success_message = QMessageBox(icon=QMessageBox.Information,
+                                                       text="Successfully reset to defaults!")
+            set_defaults_success_message.setWindowTitle("Info")
+            set_defaults_success_message.exec_()
+
+    def apply_pressed(self):
+        if self.blur.get_value() % 2 == 1:
+            no_odd_number = QMessageBox(icon=QMessageBox.Critical,
+                                        text="For the blur value, no odd numbers are allowed.")
+            no_odd_number.setWindowTitle("No odd numbers allowed")
+            no_odd_number.exec_()
+            return False
+        settings_list = [
+            self.blur.get_value(),
+            self.x_grid.get_value(),
+            self.y_grid.get_value(),
+            self.thresh_value.get_value(),
+            self.thresh_max_brightness.get_value(),
+            self.dilate.get_value(),
+            self.max_meteors.get_value(),
+            self.min_area.get_value(),
+            self.max_area.get_value(),
+            self.signal_label.get_value(),
+            self.sort_out_area_difference.get_value(),
+            self.max_length.get_value(),
+            self.min_length.get_value(),
+            self.resolution_to_write.get_value(),
+            self.max_distance.get_value(),
+            self.max_frames.get_value(),
+            self.delete_threshold.get_value(),
+            self.delete_percentage.get_value()
+        ]
+        with open("files/settings.txt", "w") as settings_file:
+            settings_file.write(json.dumps(settings_list))
+        return True
+
+    def ok_pressed(self):
+        if self.apply_pressed():
+            self.close()
+
+    def setup_values(self):
+        with open("files/settings.txt", "r") as settings_file:
+            settings_list = json.loads(settings_file.read())
+            self.blur.change_value(settings_list[0])
+            self.x_grid.change_value(settings_list[1])
+            self.y_grid.change_value(settings_list[2])
+            self.thresh_value.change_value(settings_list[3])
+            self.thresh_max_brightness.change_value(settings_list[4])
+            self.dilate.change_value(settings_list[5])
+            self.max_meteors.change_value(settings_list[6])
+            self.min_area.change_value(settings_list[7])
+            self.max_area.change_value(settings_list[8])
+            self.signal_label.change_value(settings_list[9])
+            self.sort_out_area_difference.change_value(settings_list[10])
+            self.max_length.change_value(settings_list[11])
+            self.min_length.change_value(settings_list[12])
+            self.resolution_to_write.change_value(settings_list[13])
+            self.max_distance.change_value(settings_list[14])
+            self.max_frames.change_value(settings_list[15])
+            self.delete_threshold.change_value(settings_list[16])
+            self.delete_percentage.change_value(settings_list[17])
+
+
 class TableModel(QAbstractTableModel):
-    def __init__(self, data):
+    def __init__(self, data, header_labels):
         super(TableModel, self).__init__()
         self._data = data
-        self.header_labels = ['Videopath', 'XML-Path', 'Folderpath', 'Duration', 'FPS', 'Resolution']
+        self.header_labels = header_labels
 
     def data(self, index, role):
         if role == Qt.DisplayRole:
             return self._data[index.row()][index.column()]
 
     def rowCount(self, index):
-        # The length of the outer list.
         return len(self._data)
 
     def columnCount(self, index):
@@ -382,48 +770,13 @@ class TableModel(QAbstractTableModel):
             return self.header_labels[section]
         return QAbstractTableModel.headerData(self, section, orientation, role)
 
+
 class ResultsWindow(QWidget):
-    def __init__(self, ama_filepath):
+    def __init__(self, amos_filepath):
         QWidget.__init__(self)
-        
-        self.setObjectName("default_widget")
-        self.setWindowTitle("AMOS - Automatic Meteor Observation System")
-        self.setGeometry(350, 100, 900, 500)
 
-        self.ama_filepath = ama_filepath
-
-        self.initUI()
-
-        self.showMaximized()
-
-    def initUI(self):
-        self.meta_data_table = QTableView(self)
-
-        self.get_ama_data()
-
-        self.table_data = []
-
-        for i in range(len(self.videopath_list)):
-            self.table_data.append([self.videopath_list[i], self.xmlpath_list[i], self.folderpath, self.length[i], self.Fps[i], f"{self.Width[i]} x {self.Height[i]}"])
-        
-        self.model = TableModel(self.table_data)
-        self.meta_data_table.setModel(self.model)
-        self.meta_data_table.setMaximumSize(1000,150)
-        self.meta_data_table.setColumnWidth(0, 200)
-        self.meta_data_table.setColumnWidth(1, 200)
-        self.meta_data_table.setColumnWidth(2, 200)
-        self.meta_data_table.setColumnWidth(3, 60)
-        self.meta_data_table.setColumnWidth(4, 60)
-        self.meta_data_table.setColumnWidth(5, 100)
-
-        self.video_player = QMediaPlayer(None, QMediaPlayer.VideoSurface)
-        self.video_player.setMedia(QMediaContent(QUrl.fromLocalFile("C:/Users/Linus/V-0001.mp4")))
-
-        self.video_widget = QVideoWidget(self)
-        self.video_widget.setMinimumHeight(500)
-        self.video_widget.resize(800, 450)
-        self.video_player.setVideoOutput(self.video_widget)
-
+        self.app_icon = QIcon()
+        self.app_icon.addPixmap(QPixmap("files/logo.ico"), QIcon.Normal, QIcon.Off)
         self.volume_icon = QIcon()
         self.volume_icon.addPixmap(QPixmap("files/volume.png"), QIcon.Normal, QIcon.Off)
         self.volume_muted_icon = QIcon()
@@ -432,6 +785,126 @@ class ResultsWindow(QWidget):
         self.play_icon.addPixmap(QPixmap("files/play.png"), QIcon.Normal, QIcon.Off)
         self.pause_icon = QIcon()
         self.pause_icon.addPixmap(QPixmap("files/pause.png"), QIcon.Normal, QIcon.Off)
+        self.loop_icon = QIcon()
+        self.loop_icon.addPixmap(QPixmap("files/loop.png"), QIcon.Normal, QIcon.Off)
+        self.loop_disabled_icon = QIcon()
+        self.loop_disabled_icon.addPixmap(QPixmap("files/loop_disabled.png"), QIcon.Normal, QIcon.Off)
+
+        self.setObjectName("default_widget")
+        self.setWindowTitle("AMOS - Automatic Meteor Observation System")
+        self.setWindowIcon(self.app_icon)
+        self.setGeometry(350, 100, 900, 500)
+
+        self.amos_filepath = amos_filepath
+
+        self.init_ui()
+
+        self.showMaximized()
+
+    def init_ui(self):
+        self.font_big = QFont()
+        self.font_big.setPointSize(11)
+
+        self.meta_data_table = QTableView(self)
+
+        self.get_amos_data()
+
+        self.meta_data_table_data = []
+
+        for i in range(len(self.videopath_list)):
+            self.meta_data_table_data.append(
+                [self.videopath_list[i], self.xmlpath_list[i], str(self.base_time_list[i]), self.length_list[i],
+                 self.Fps_list[i], f"{self.Width_list[i]} x {self.Height_list[i]}"])
+
+        self.meta_data_model = TableModel(self.meta_data_table_data,
+                                          ['Videopath', 'XML-Path', 'Video start', 'Duration', 'FPS', 'Resolution'])
+        self.meta_data_table.setModel(self.meta_data_model)
+        self.meta_data_table.setColumnWidth(0, 400)
+        self.meta_data_table.setColumnWidth(1, 280)
+        self.meta_data_table.setColumnWidth(2, 150)
+        self.meta_data_table.setColumnWidth(3, 65)
+        self.meta_data_table.setColumnWidth(4, 60)
+        self.meta_data_table.setColumnWidth(5, 100)
+
+        self.meta_data_table.clicked.connect(self.meta_cell_clicked)
+
+        self.meteor_data_table = QTableView(self)
+        self.meteor_data_table.setMinimumWidth(1100)
+
+        self.meteor_data_table_data = []
+
+        for key in self.meteors:
+            meteor = self.meteors[key]
+            self.meteor_data_table_data.append([
+                key,
+                meteor['VideoID'],
+                f"{meteor['position'][0]}, {meteor['position'][1]}",
+                str(meteor['frames'])[1:-1],
+                str(datetime.time(*meteor['beginning'][0]))[:-4],
+                str(datetime.time(*meteor['end'][0]))[:-4],
+                str(datetime.time(*meteor['beginning'][1]))[:-4],
+                str(datetime.time(*meteor['end'][1]))[:-4],
+                str(meteor['duration'][0]) + " frames; " + str(datetime.time(*meteor['duration'][1]))[:-4],
+                str(meteor['area']) + " px",
+                str(meteor['rotation']) + "°",
+                str(datetime.date(*meteor['date']))
+            ])
+
+        self.meteor_data_model = TableModel(self.meteor_data_table_data, ['MeteorID',
+                                                                          'VideoID',
+                                                                          'Position',
+                                                                          'Frames',
+                                                                          'Beginning CET',
+                                                                          'End CET',
+                                                                          'Beginning Video',
+                                                                          'End Video',
+                                                                          'Duration',
+                                                                          'max. Area',
+                                                                          'Rotation',
+                                                                          'Date'])
+        self.meteor_data_table.setModel(self.meteor_data_model)
+        self.meteor_data_table.setColumnWidth(0, 85)
+        self.meteor_data_table.setColumnWidth(1, 65)
+        self.meteor_data_table.setColumnWidth(2, 70)
+        self.meteor_data_table.setColumnWidth(3, 100)
+        self.meteor_data_table.setColumnWidth(4, 85)
+        self.meteor_data_table.setColumnWidth(5, 85)
+        self.meteor_data_table.setColumnWidth(6, 100)
+        self.meteor_data_table.setColumnWidth(7, 85)
+        self.meteor_data_table.setColumnWidth(8, 140)
+        self.meteor_data_table.setColumnWidth(9, 70)
+        self.meteor_data_table.setColumnWidth(10, 60)
+        self.meteor_data_table.setColumnWidth(11, 80)
+
+        self.meteor_data_table.clicked.connect(self.meteor_cell_clicked)
+
+        self.project_info_box = QGroupBox()
+        self.project_info_box.setTitle("Project information")
+        self.project_info_box.setFlat(True)
+        self.project_info_box.setFixedHeight(80)
+
+        self.folderpath_label = QLabel(self.project_info_box)
+        self.folderpath_label.move(10, 20)
+        self.folderpath_label.setMinimumWidth(500)
+        self.folderpath_label.setText("Folderpath: \n" + self.folderpath)
+        self.folderpath_label.setObjectName("default_label")
+        self.folderpath_label.setFont(self.font_big)
+
+        self.video_player = QMediaPlayer(None, QMediaPlayer.VideoSurface)
+        self.video_player.setMedia(QMediaContent(QUrl.fromLocalFile(self.videopath_list[0])))
+        self.video_player.play()
+        self.video_player.pause()
+
+        self.media_index = 0
+
+        self.video_widget = QVideoWidget(self)
+        self.video_player.setVideoOutput(self.video_widget)
+
+        self.video_name_label = QLabel()
+        self.video_name_label.setText(os.path.basename(self.video_player.currentMedia().canonicalUrl().toString()))
+        self.video_name_label.setObjectName("default_label")
+        self.video_name_label.setMaximumHeight(25)
+        self.video_name_label.setFont(Window.font_bold_14)
 
         self.mute_button = QPushButton(self)
         self.mute_button.setIcon(self.volume_icon)
@@ -439,24 +912,57 @@ class ResultsWindow(QWidget):
         self.play_button = QPushButton(self)
         self.play_button.setIcon(self.play_icon)
         self.play_button.setObjectName("video_button")
-        # self.skip_forward = QPushButton(self)
-        # self.mute_button.setIcon(self.style().standardIcon(QStyle.SP_MediaVolume))
+        self.loop_button = QPushButton(self)
+        self.loop_button.setIcon(self.loop_disabled_icon)
+        self.loop_button.setObjectName("video_button")
+        self.loop = False
 
-        self.main_layout = QGridLayout(self)
-        self.button_layout = QHBoxLayout(self)
+        self.time_label = QLabel(self)
+        self.time_label.setText("00:00:00")
+        self.time_label.setMaximumSize(QSize(60, 12))
+        self.time_label.setObjectName("default_label")
+        self.time_label.setFont(Window.font_normal_10)
+        self.video_time = datetime.time(0, 0, 0)
 
-        self.button_layout.addWidget(self.mute_button)
-        self.button_layout.addWidget(self.play_button)
+        self.video_slider = QSlider(Qt.Horizontal, self)
 
-        self.main_layout.addWidget(self.meta_data_table, 0, 0)
-        self.main_layout.addWidget(self.video_widget, 1, 0)
-        self.main_layout.addLayout(self.button_layout, 2,0)
+        self.main_layout = QHBoxLayout(self)
+        self.main_layout.setAlignment(Qt.AlignCenter)
+        self.control_layout = QHBoxLayout(self)
+        self.video_layout = QVBoxLayout(self)
+        self.data_layout = QSplitter(self)
+        self.data_layout.setOrientation(Qt.Vertical)
+
+        self.control_layout.addWidget(self.time_label)
+        self.control_layout.addWidget(self.play_button)
+        self.control_layout.addWidget(self.video_slider)
+        self.control_layout.addWidget(self.mute_button)
+        self.control_layout.addWidget(self.loop_button)
+
+        self.data_layout.addWidget(self.meta_data_table)
+        self.data_layout.addWidget(self.meteor_data_table)
+
+        self.main_layout.addLayout(self.video_layout)
+        self.main_layout.addWidget(self.data_layout)
+
+        self.video_layout.addWidget(self.project_info_box)
+        self.video_layout.addWidget(self.video_widget)
+        self.video_layout.addWidget(self.video_name_label)
+        self.video_layout.addLayout(self.control_layout)
 
         self.mute_button.clicked.connect(self.toggle_muted)
         self.play_button.clicked.connect(self.toggle_play)
+        self.loop_button.clicked.connect(self.toggle_loop)
 
-    def get_ama_data(self):
-        self.path = self.ama_filepath
+        self.video_player.mediaStatusChanged.connect(self.handle_media_status)
+        self.video_player.positionChanged.connect(self.position_changed)
+        self.video_player.durationChanged.connect(self.duration_changed)
+        self.video_player.mediaChanged.connect(self.media_changed)
+
+        self.video_slider.sliderMoved.connect(self.set_position)
+
+    def get_amos_data(self):
+        self.path = self.amos_filepath
         with open(self.path, "r") as f:
             self.data = f.read().split(sep="\n")
             self.videopath_list, self.xmlpath_list, self.folderpath = json.loads(self.data[0])
@@ -464,9 +970,9 @@ class ResultsWindow(QWidget):
             self.base_time_list = []
             for base_time in self.base_times:
                 self.base_time_list.append(datetime.datetime(*base_time))
-            self.length = json.loads(self.data[2])
-            self.Fps = json.loads(self.data[3])
-            self.Width, self.Height = json.loads(self.data[4])
+            self.length_list = json.loads(self.data[2])
+            self.Fps_list = json.loads(self.data[3])
+            self.Width_list, self.Height_list = json.loads(self.data[4])
             self.meteors = json.loads(self.data[5])
 
     def toggle_muted(self):
@@ -485,18 +991,81 @@ class ResultsWindow(QWidget):
             self.video_player.play()
             self.play_button.setIcon(self.pause_icon)
 
+    def toggle_loop(self):
+        if self.loop:
+            self.loop_button.setIcon(self.loop_disabled_icon)
+            self.loop = False
+        else:
+            self.loop_button.setIcon(self.loop_icon)
+            self.loop = True
+
     def closeEvent(self, event):
         # Make sure the video stops when the window closes
         if self.video_player.state() == QMediaPlayer.PlayingState:
             self.video_player.stop()
         event.accept()
 
+    def handle_media_status(self):
+        if self.video_player.mediaStatus() == QMediaPlayer.EndOfMedia:
+            if self.loop:
+                self.video_player.play()
+                self.play_button.setIcon(self.pause_icon)
+            elif self.media_index < len(self.videopath_list) - 1:
+                self.media_index += 1
+                self.video_player.setMedia(QMediaContent(QUrl.fromLocalFile(self.videopath_list[self.media_index])))
+                self.video_player.play()
+                self.play_button.setIcon(self.pause_icon)
+            else:
+                self.video_player.pause()
+                self.play_button.setIcon(self.play_icon)
+            self.video_player.setPosition(1)
+
+    def position_changed(self, position):
+        self.video_slider.setValue(position)
+        self.video_time = datetime.timedelta(milliseconds=position)
+        self.time_label.setText(str(self.video_time)[:7])
+
+    def duration_changed(self, duration):
+        self.video_slider.setRange(0, duration)
+
+    def media_changed(self, media):
+        self.video_name_label.setText(os.path.basename(media.canonicalUrl().toString()))
+
+    def set_position(self, position):
+        self.video_player.setPosition(position)
+
+    def meta_cell_clicked(self):
+        cell_index = self.meta_data_table.selectedIndexes()[0]
+        if str(cell_index.data())[-4:].lower() == ".mp4":
+            self.video_player.setMedia(
+                QMediaContent(QUrl.fromLocalFile(cell_index.data())))
+            self.video_player.play()
+            self.play_button.setIcon(self.pause_icon)
+
+            self.media_index = cell_index.row()
+
+    def meteor_cell_clicked(self):
+        cell_index = self.meteor_data_table.selectedIndexes()[0]
+        model = self.meteor_data_table.model()
+        meteor_index = cell_index.row()
+        for i, video in enumerate(self.videopath_list):
+            if os.path.basename(video)[:-4] == model.index(meteor_index, 1).data():
+                self.video_player.setMedia(
+                    QMediaContent(QUrl.fromLocalFile(video)))
+                self.video_player.pause()
+                self.video_player.setPosition(
+                    int(model.index(meteor_index, 3).data().split(",")[0]) * (1000 / self.Fps_list[i]))
+                self.play_button.setIcon(self.play_icon)
+
+                self.media_index = i
+
+
 class AnalysationWindow(QMainWindow):
     def __init__(self):
         super(AnalysationWindow, self).__init__()
 
-        #Define fonts
-        #roboto_light = QFontDatabase.addApplicationFont("files/Roboto-Light.ttf")
+        # Define fonts
+        # roboto_light = QFontDatabase.addApplicationFont("files/Roboto-Light.ttf")
         self.default_font = QFont("Roboto Light", 9)
         self.font_bold_9 = QFont("Roboto Light", 9)
         self.font_bold_9.setBold(True)
@@ -508,7 +1077,7 @@ class AnalysationWindow(QMainWindow):
         self.font_bold_15 = QFont("Poetsen One", 15)
         self.font_bold_15.setBold(True)
 
-        #define icons
+        # define icons
         self.app_icon = QIcon()
         self.app_icon.addPixmap(QPixmap("files/logo.ico"), QIcon.Normal, QIcon.Off)
         self.trash_icon = QIcon()
@@ -516,47 +1085,61 @@ class AnalysationWindow(QMainWindow):
         self.analyse_icon = QIcon()
         self.analyse_icon.addPixmap(QPixmap("files/analyse_icon.png"), QIcon.Normal, QIcon.Off)
 
-        #define movies
+        # define movies
         self.loading_animation = QMovie("files/loading.gif")
-        self.loading_animation.setScaledSize(QSize(32,32))
+        self.loading_animation.setScaledSize(QSize(32, 32))
+
+        self.unsaved_changes = False
+        self.was_successful = False
+        self.broke_frame = 0
 
         self.resize(1000, 700)
         self.setFont(self.default_font)
         self.setWindowTitle("AMOS - Automatic Meteor Observation System")
         self.setWindowIcon(self.app_icon)
         self.setObjectName("AnalysationWindow")
-        self.initUI()
+        self.init_ui()
 
-    def initUI(self):
-        #setup the main widget
+        if len(sys.argv) > 1:
+            if os.path.splitext(sys.argv[1])[1] == ".amos":
+                self.amos_file_path = sys.argv[1]
+            else:
+                no_valid_amos_file = QMessageBox(icon=QMessageBox.Critical, text="The file you are trying to open is "
+                                                                                 "not a valid .amos file.")
+                no_valid_amos_file.setWindowTitle("XML not found")
+                no_valid_amos_file.exec_()
+        else:
+            self.amos_file_path = ""
+
+    def init_ui(self):
+        # setup the main widget
         self.centralwidget = QWidget(self)
 
-        #Setup the logo
+        # Setup the logo
         self.amos_title_image = QLabel(self.centralwidget)
         self.amos_title_image.setGeometry(10, 0, 400, 132)
         self.amos_title_image.setPixmap(QPixmap("files/amos_logo_white.png"))
         self.amos_title_image.setScaledContents(True)
 
-        #Thumbnail section
+        # Thumbnail section
         self.video_thumb_label = QLabel(self.centralwidget)
-        self.video_thumb_label.move(260, 180)
+        self.video_thumb_label.move(260, 170)
         self.video_thumb_label.setText("Video preview:")
         self.video_thumb_label.setObjectName("default_label")
         self.video_thumb_label.setFont(self.font_bold_10)
 
         self.video_thumb = QLabel(self.centralwidget)
-        self.video_thumb.move(405, 135)
-        self.video_thumb.resize(192,108)
+        self.video_thumb.move(405, 125)
+        self.video_thumb.resize(192, 108)
         self.video_thumb.setPixmap(QPixmap("files/default_thumbnail.png"))
         self.video_thumb.setScaledContents(True)
         self.video_thumb.setObjectName("video_thumb")
 
-
-        #File selection section
+        # File selection section
         self.file_selection_widget = QWidget(self.centralwidget)
-        self.file_selection_widget.setGeometry(20, 240, 820, 200)
+        self.file_selection_widget.setGeometry(20, 240, 850, 200)
         self.file_selection_grid = QGridLayout(self.file_selection_widget)
-        self.file_selection_grid.setContentsMargins(0, 0, 0, 0)        
+        self.file_selection_grid.setContentsMargins(0, 0, 0, 0)
 
         self.video_selection_status = QLabel(self.file_selection_widget)
         self.video_selection_status.setObjectName("selection_status")
@@ -583,24 +1166,24 @@ class AnalysationWindow(QMainWindow):
         self.browse_folder_button.setObjectName("secondary_button")
         self.browse_folder_button.setCursor(QCursor(Qt.PointingHandCursor))
 
-        spacer_browse_path = QSpacerItem(60, 20, QSizePolicy.Fixed, QSizePolicy.Minimum)
+        spacer_browse_path = QSpacerItem(10, 20, QSizePolicy.Fixed, QSizePolicy.Minimum)
 
-        self.videopath_label = Drop_Label(self.file_selection_widget)
-        self.videopath_label.defineType("video")
+        self.videopath_label = DropLabel(self.file_selection_widget)
+        self.videopath_label.define_type("video")
         self.videopath_label.setFont(self.default_font)
         self.videopath_label.setAlignment(Qt.AlignCenter)
         self.videopath_label.setObjectName("default_label")
-        self.xmlpath_label = Drop_Label(self.file_selection_widget)
-        self.xmlpath_label.defineType("xml")
+        self.xmlpath_label = DropLabel(self.file_selection_widget)
+        self.xmlpath_label.define_type("xml")
         self.xmlpath_label.setFont(self.default_font)
         self.xmlpath_label.setAlignment(Qt.AlignCenter)
         self.xmlpath_label.setObjectName("default_label")
-        self.folderpath_label = Drop_Label(self.file_selection_widget)
-        self.folderpath_label.defineType("folder")
+        self.folderpath_label = DropLabel(self.file_selection_widget)
+        self.folderpath_label.define_type("folder")
         self.folderpath_label.setFont(self.default_font)
         self.folderpath_label.setAlignment(Qt.AlignCenter)
         self.folderpath_label.setObjectName("default_label")
-        
+
         self.delete_video_selection_button = QPushButton(self.file_selection_widget)
         self.delete_video_selection_button.setObjectName("delete_button")
         self.delete_video_selection_button.setCursor(QCursor(Qt.PointingHandCursor))
@@ -628,7 +1211,7 @@ class AnalysationWindow(QMainWindow):
         self.select_starting_time_button.setFont(self.font_bold_10)
         self.select_starting_time_button.setVisible(False)
         self.select_starting_time_button.setCursor(QCursor(Qt.PointingHandCursor))
-        
+
         self.file_selection_grid.addWidget(self.video_selection_status, 0, 0, 1, 1)
         self.file_selection_grid.addWidget(self.xml_selection_status, 4, 0, 1, 1)
         self.file_selection_grid.addWidget(self.folder_selection_status, 1, 0, 1, 1)
@@ -647,12 +1230,12 @@ class AnalysationWindow(QMainWindow):
         self.file_selection_grid.addWidget(self.use_no_xml_radio, 3, 2, 1, 1)
         self.file_selection_grid.addWidget(self.select_starting_time_button, 3, 3, 1, 2)
 
-        #Defaults section
+        # Defaults section
         self.defaults_group = QGroupBox(self.centralwidget)
         self.defaults_group.setGeometry(430, 20, 480, 80)
         self.defaults_group.setFont(self.font_normal_10)
         self.defaults_group.setFlat(True)
-        
+
         self.apply_defaults_button = QPushButton(self.defaults_group)
         self.apply_defaults_button.setGeometry(20, 30, 130, 33)
         self.apply_defaults_button.setFont(self.font_bold_9)
@@ -674,8 +1257,8 @@ class AnalysationWindow(QMainWindow):
         self.help_defaults_button.setFont(self.font_bold_14)
         self.help_defaults_button.setObjectName("help_defaults_button")
         self.help_defaults_button.setCursor(QCursor(Qt.PointingHandCursor))
-        
-        #Analyse section
+
+        # Analyse section
         self.analyse_widget = QWidget(self.centralwidget)
         self.analyse_widget.setGeometry(20, 450, 250, 71)
         self.analyse_layout = QHBoxLayout(self.analyse_widget)
@@ -697,12 +1280,12 @@ class AnalysationWindow(QMainWindow):
         self.analyse_layout.addItem(spacer_status_analyse)
         self.analyse_layout.addWidget(self.analyse_button)
 
-        #Spreadsheet section
+        # Spreadsheet section
         self.spreadsheet_group = QGroupBox(self.centralwidget)
         self.spreadsheet_group.setGeometry(20, 570, 480, 80)
         self.spreadsheet_group.setFont(self.font_normal_10)
         self.spreadsheet_group.setFlat(True)
-        
+
         self.open_spreadsheet_button = QPushButton(self.spreadsheet_group)
         self.open_spreadsheet_button.setGeometry(20, 30, 250, 32)
         self.open_spreadsheet_button.setFont(self.font_bold_9)
@@ -713,14 +1296,15 @@ class AnalysationWindow(QMainWindow):
         self.save_spreadsheet_button.setFont(self.font_bold_9)
         self.save_spreadsheet_button.setObjectName("tertiary_button")
         self.save_spreadsheet_button.setCursor(QCursor(Qt.PointingHandCursor))
-        
-        #Setup the central widget
+
+        # Setup the central widget
         self.setCentralWidget(self.centralwidget)
 
-        #Add a menubar
+        # Add a menubar
         self.menubar = QMenuBar(self)
         self.filemenu = QMenu(self.menubar)
         self.languagemenu = QMenu(self.menubar)
+        self.languagemenu.setDisabled(True)
         self.setMenuBar(self.menubar)
 
         self.actionOpen = QAction(self)
@@ -741,23 +1325,22 @@ class AnalysationWindow(QMainWindow):
         self.menubar.addAction(self.filemenu.menuAction())
         self.menubar.addAction(self.languagemenu.menuAction())
 
-        #Add a statusbar
+        # Add a statusbar
         self.statusbar = QStatusBar(self)
         self.setStatusBar(self.statusbar)
 
-        #Add all the text
+        # Add all the text
         self.browse_video_button.setText("BROWSE")
         self.browse_xml_button.setText("BROWSE")
         self.browse_folder_button.setText("BROWSE")
         self.videopath_label.setText('Please press "Browse" or drag & drop a video to select it')
         self.xmlpath_label.setText('Please press "Browse" or drag & drop an XML file to select it')
         self.folderpath_label.setText('Please press "Browse" or drag & drop a folder to select it')
-        
+
         self.defaults_group.setTitle("Defaults")
         self.set_defaults_button.setText("Set defaults")
         self.apply_defaults_button.setText("Apply defaults")
         self.delete_defaults_button.setText("Delete defaults")
-        
 
         self.analyse_button.setText("ANALYSE")
 
@@ -806,19 +1389,20 @@ class AnalysationWindow(QMainWindow):
         self.save_spreadsheet_button.clicked.connect(self.save_spreadsheet)
         self.analyse_button.clicked.connect(self.analyse)
 
-        self.actionQuit.triggered.connect(self.exit_program)
-        self.actionOpen.triggered.connect(self.open_ama_file)
-        self.actionSave.triggered.connect(self.save_ama_file)
+        self.actionQuit.triggered.connect(sys.exit)
+        self.actionOpen.triggered.connect(self.open_amos_file)
+        self.actionSave.triggered.connect(self.save_amos_file)
+        self.actionSettings.triggered.connect(self.open_settings)
 
     def setup_video_selection(self, videopath_list):
         self.videopath_list = videopath_list
-        if self.videopath_list != []: #If the user didn't cancel the selection
+        if self.videopath_list:  # If the user didn't cancel the selection
             thumbnail = get_thumbnail(self.videopath_list[0])
-            if thumbnail.any() == None:
+            if thumbnail.any() is None:
                 return
             height, width, _ = thumbnail.shape
-            bytesPerLine = 3 * width
-            video_thumbnail = QImage(thumbnail.data, width, height, bytesPerLine, QImage.Format_RGB888).rgbSwapped()
+            bytes_per_line = 3 * width
+            video_thumbnail = QImage(thumbnail.data, width, height, bytes_per_line, QImage.Format_RGB888).rgbSwapped()
             self.video_thumb.setPixmap(QPixmap(video_thumbnail))
             self.VideoID_List = []
             self.videopath_string = ""
@@ -831,18 +1415,18 @@ class AnalysationWindow(QMainWindow):
                 self.videopath_label.setText("Video:\n" + self.videopath_string)
             else:
                 for i in range(1):
-                    video=self.videopath_list[i]
+                    video = self.videopath_list[i]
                     if len(video) > 50:
-                        video=f"{video[:3]} [ . . . ] {video[-50:]}"
+                        video = f"{video[:3]} [ . . . ] {video[-50:]}"
                     self.videopath_string += f"\n{video}"
-                self.videopath_string += f"\n... and {str(len(self.videopath_list)-1)} more"
+                self.videopath_string += f"\n... and {str(len(self.videopath_list) - 1)} more"
                 self.videopath_label.setText("Videos:" + self.videopath_string)
             self.video_selection_status.setPixmap(QPixmap("files/check_icon.png"))
             self.video_selection_status.setToolTip("Status:\nCompleted!")
 
     def setup_xml_selection(self, xmlpath_list):
         self.xmlpath_list = xmlpath_list
-        if self.xmlpath_list != []: #If the user didn't cancel the selection
+        if self.xmlpath_list:  # If the user didn't cancel the selection
             self.xmlpath_string = ""
             if len(self.xmlpath_list) == 1:
                 self.xmlpath_string = self.xmlpath_list[0]
@@ -851,24 +1435,24 @@ class AnalysationWindow(QMainWindow):
                 self.xmlpath_label.setText("XML:\n" + self.xmlpath_string)
             else:
                 for i in range(1):
-                    xml=self.xmlpath_list[i]
+                    xml = self.xmlpath_list[i]
                     if len(xml) > 50:
-                        xml=f"{xml[:3]} [ . . . ] {xml[-50:]}"
+                        xml = f"{xml[:3]} [ . . . ] {xml[-50:]}"
                     self.xmlpath_string += f"\n{xml}"
-                self.xmlpath_string += f"\n... and {str(len(self.xmlpath_list)-1)} more"
+                self.xmlpath_string += f"\n... and {str(len(self.xmlpath_list) - 1)} more"
                 self.xmlpath_label.setText("XMLs:" + self.xmlpath_string)
             self.xml_selection_status.setPixmap(QPixmap("files/check_icon.png"))
             self.xml_selection_status.setToolTip("Status:\nCompleted!")
 
     def setup_folder_selection(self, folderpath):
         self.folderpath = folderpath
-        if self.folderpath != "": #If the user didn't cancel the selection
+        if self.folderpath != "":  # If the user didn't cancel the selection
             if len(self.folderpath) > 50:
                 self.folderpath_string = f"{self.folderpath[:3]} [ . . . ] {self.folderpath[-50:]}"
             else:
-                self.folder
+                self.folderpath_string = self.folderpath
             self.folderpath_label.setText("Results folder:\n" + self.folderpath_string)
-            
+
             self.folder_selection_status.setPixmap(QPixmap("files/check_icon.png"))
             self.folder_selection_status.setToolTip("Status:\nCompleted!")
 
@@ -876,7 +1460,7 @@ class AnalysationWindow(QMainWindow):
         self.videopath_list = QFileDialog.getOpenFileNames(parent=self, filter="MP4 Files (*.mp4)")
         self.videopath_list = self.videopath_list[0]
         self.setup_video_selection(self.videopath_list)
-            
+
     def get_xml_location(self):
         self.xmlpath_list = QFileDialog.getOpenFileNames(parent=self, filter="XML Files (*.xml)")
         self.xmlpath_list = self.xmlpath_list[0]
@@ -904,7 +1488,7 @@ class AnalysationWindow(QMainWindow):
             self.xml_selection_status.setToolTip("Status:\nNot yet completed!")
         except AttributeError:
             pass
-    
+
     def delete_folder_selection(self):
         try:
             self.folderpath_label.setText('Please press "Browse" or drag & drop a folder to select it')
@@ -913,18 +1497,19 @@ class AnalysationWindow(QMainWindow):
             self.folder_selection_status.setToolTip("Status:\nNot yet completed!")
         except AttributeError:
             pass
-    
-    def help_defaults(self):
+
+    @staticmethod
+    def help_defaults():
         help_defaults_message = QMessageBox()
         help_defaults_message.setWindowTitle("What are defaults?")
-        help_defaults_message.setText("Defaults are not required for the program to work. They let you quickly fill out the video, xml and folderpath with predefined values. You should only use them if you analyse the same video over and over again.")
+        help_defaults_message.setText(
+            "Defaults are not required for the program to work. They let you quickly fill out the video, "
+            "xml and folderpath with predefined values. You should only use them if you analyse the same video over "
+            "and over again.")
         help_defaults_message.setIcon(QMessageBox.Question)
         help_defaults_message.setStandardButtons(QMessageBox.Ok)
 
         help_defaults_message.exec_()
-    
-    def exit_program(self):
-        sys.exit()
 
     def open_spreadsheet(self):
         try:
@@ -932,16 +1517,27 @@ class AnalysationWindow(QMainWindow):
         except AttributeError:
             self.open_spreadsheet_message = QMessageBox()
             self.open_spreadsheet_message.setWindowTitle("Folder selection missing!")
-            self.open_spreadsheet_message.setText("To open the results spreadsheet, you first have to: \n    1. Select a folder where the results are stored in.\n    2. Run the analysation to generate results. NOTE: You can also use this \n        application to view existing results. In this case, you don't have to run the \n        analysation, but you have to select the folder where it is stored in")
+            self.open_spreadsheet_message.setText(
+                "To open the results spreadsheet, you first have to: \n    1. Select a folder where the results are "
+                "stored in.\n    2. Run the analysation to generate results. NOTE: You can also use this \n        "
+                "application to view existing results. In this case, you don't have to run the \n        analysation, "
+                "but you have to select the folder where it is stored in")
             self.open_spreadsheet_message.setIcon(QMessageBox.Warning)
             self.open_spreadsheet_message.setStandardButtons(QMessageBox.Close)
             self.open_spreadsheet_message.exec_()
-    
+
     def analyse(self):
         try:
+            self.meteor_data = {}
             self.wb = xl.load_workbook('files/Results_template.xlsx')
             self.sheet = self.wb['Data']
             self.meteor_count = 0
+
+            self.length_list = []
+            self.fps_list = []
+            self.height_list = []
+            self.width_list = []
+            self.base_time_list = []
 
             for self.video_index in range(len(self.videopath_list)):
                 meta_data_video = cv2.VideoCapture(self.videopath_list[self.video_index])
@@ -949,72 +1545,121 @@ class AnalysationWindow(QMainWindow):
                 self.Fps = int(meta_data_video.get(cv2.CAP_PROP_FPS))
                 self.Height = int(meta_data_video.get(cv2.CAP_PROP_FRAME_HEIGHT))
                 self.Width = int(meta_data_video.get(cv2.CAP_PROP_FRAME_WIDTH))
-                
-                if self.use_xml:
-                    self.was_successful, self.meteor_data = analyse(self.videopath_list[self.video_index],self.xmlpath_list[self.video_index],self.folderpath, self.VideoID_List[self.video_index], Window, True)
-                else:
-                    date_picker_popup = DatePickerPopup()
-                    date_picker_popup.exec_()
 
-                    self.was_successful, self.meteor_data = analyse(Window.videopath_list[self.video_index],None,Window.folderpath, Window.VideoID_List[self.video_index], Window, False)
-            
+                if self.broke_frame != 0:
+                    continue_at_breaking_point = QMessageBox.question(Window, "Continue?",
+                                                                      "Do you want to continue where you left?",
+                                                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+                    if continue_at_breaking_point == QMessageBox.Yes:
+                        self.start_frame = self.broke_frame
+                    else:
+                        self.start_frame = 1
+                else:
+                    self.start_frame = 1
+
+                if self.use_xml:
+                    self.was_successful, self.video_meteor_data, self.sort_out_list, self.base_time_separated = analyse(
+                        self.videopath_list[self.video_index],
+                        self.xmlpath_list[self.video_index],
+                        self.folderpath,
+                        self.VideoID_List[self.video_index],
+                        Window,
+                        True)
+                else:
+                    self.was_successful, self.video_meteor_data, self.sort_out_list, self.base_time_separated = analyse(
+                        self.videopath_list[self.video_index],
+                        None,
+                        self.folderpath,
+                        self.VideoID_List[self.video_index],
+                        Window,
+                        False)
+
+                self.length_list.append(self.length)
+                self.fps_list.append(self.Fps)
+                self.height_list.append(self.Height)
+                self.width_list.append(self.Width)
+                self.base_time_list.append(self.base_time_separated)
+
+                self.meteor_data[self.VideoID_List[self.video_index]] = self.base_time_separated
+
+                self.meteor_data.update(self.video_meteor_data)
+
             if self.was_successful:
+                self.unsaved_changes = True
+                self.setWindowTitle("AMOS - Automatic Meteor Observation System [unsaved changes]")
+
                 self.analysation_status_image.setPixmap(QPixmap("files/check_icon.png"))
                 self.analysation_status_image.setToolTip("Status:\nCompleted!")
                 try:
                     self.wb.save(f'{self.folderpath}/Results.xlsx')
                 except PermissionError:
-                    Window.spreadsheet_opened_error = QMessageBox(icon=QMessageBox.Warning, text='You have your spreadsheet still opened! Close it and press "Save spreadsheet" again, otherwise ALL DATA WILL BE LOST!')
+                    Window.spreadsheet_opened_error = QMessageBox(icon=QMessageBox.Warning,
+                                                                  text='You have your spreadsheet still opened! Close '
+                                                                       'it and press "Save spreadsheet" again, '
+                                                                       'otherwise ALL DATA WILL BE LOST!')
                     Window.spreadsheet_opened_error.setWindowTitle("Spreadsheet still opened!")
                     Window.spreadsheet_opened_error.setStandardButtons(QMessageBox.Close)
 
                     Window.spreadsheet_opened_error.exec_()
-                
+
         except AttributeError as a:
-            self.analyse_error_message = QMessageBox(icon=QMessageBox.Critical, text='The analysation algorithm needs three infos:\n    1. The video to process.\n    2. The corresponding XML file to get information like the \n        duration, resolution and frame rate.\n    3. The folder where it saves images of frames with meteors \n        and the spreadsheet.')
+            self.analyse_error_message = QMessageBox(icon=QMessageBox.Critical,
+                                                     text='The analysation algorithm needs three infos:\n    1. The '
+                                                          'video to process.\n    2. The beginning of the video, either'
+                                                          ' from an XML-File or \n        the manual picker'
+                                                          '\n    3. The folder where it saves images '
+                                                          'of frames with meteors \n        and the spreadsheet.')
             self.analyse_error_message.setWindowTitle("File selection missing!")
-            self.analyse_error_message.setInformativeText('<h3><strong>To select these infos, press the blue "Browse" buttons.</strong></h3>')
-            self.analyse_error_message.setDetailedText("Error message:\n"+str(a))
+            self.analyse_error_message.setInformativeText(
+                '<h3><strong>To select these infos, press the blue "Browse" buttons.</strong></h3>')
+            self.analyse_error_message.setDetailedText("Error message:\n" + str(a))
             self.analyse_error_message.setStandardButtons(QMessageBox.Close)
             self.analyse_error_message.exec_()
-        except Exception as e:
-            self.analyse_error_message = QMessageBox(icon=QMessageBox.Critical, text=f"The following unknown error occurred:\n'{e}'\nPlease contact the developer of this program to fix the problem!")
-            self.analyse_error_message.setWindowTitle("Unknown error occured")
+        except IndentationError as e:
+            self.analyse_error_message = QMessageBox(icon=QMessageBox.Critical,
+                                                     text=f"The following unknown error occurred:\n'{e}'\nPlease "
+                                                          f"contact the developer of this program to fix the problem!")
+            self.analyse_error_message.setWindowTitle("Unknown error occurred")
             self.analyse_error_message.exec_()
 
     def save_spreadsheet(self):
         try:
             save_spreadsheet(Window)
-            self.spreadsheet_sucess_message = QMessageBox()
-            self.spreadsheet_sucess_message.setWindowTitle("Saved succesfully!")
-            self.spreadsheet_sucess_message.setText('Spreadsheet saved succesfully!')
-            self.spreadsheet_sucess_message.setIcon(QMessageBox.Information)
-            self.spreadsheet_sucess_message.setStandardButtons(QMessageBox.Ok)
-            self.spreadsheet_sucess_message.exec_()
+            self.spreadsheet_success_message = QMessageBox()
+            self.spreadsheet_success_message.setWindowTitle("Saved successfully!")
+            self.spreadsheet_success_message.setText('Spreadsheet saved successfully!')
+            self.spreadsheet_success_message.setIcon(QMessageBox.Information)
+            self.spreadsheet_success_message.setStandardButtons(QMessageBox.Ok)
+            self.spreadsheet_success_message.exec_()
 
         except PermissionError:
             self.spreadsheet_opened_error = QMessageBox()
             self.spreadsheet_opened_error.setWindowTitle("Spreadsheet still opened!")
-            self.spreadsheet_opened_error.setText('You have your spreadsheet still opened! Close it and press "Save spreadsheet" again, otherwise ALL DATA WILL BE LOST!')
+            self.spreadsheet_opened_error.setText(
+                'You have your spreadsheet still opened! Close it and press "Save spreadsheet" again, otherwise ALL '
+                'DATA WILL BE LOST!')
             self.spreadsheet_opened_error.setIcon(QMessageBox.Warning)
             self.spreadsheet_opened_error.setStandardButtons(QMessageBox.Close)
             self.spreadsheet_opened_error.exec_()
 
-        except NameError:
+        except AttributeError:
             self.spreadsheet_not_able_to_save = QMessageBox()
             self.spreadsheet_not_able_to_save.setWindowTitle("Data missing!")
             self.spreadsheet_not_able_to_save.setText('Please run the analysation before saving the spreadsheet.')
             self.spreadsheet_not_able_to_save.setIcon(QMessageBox.Warning)
             self.spreadsheet_not_able_to_save.setStandardButtons(QMessageBox.Close)
             self.spreadsheet_not_able_to_save.exec_()
-    
-    def apply_defaults(self):
+
+    @staticmethod
+    def apply_defaults():
         apply_defaults(Window)
 
-    def set_defaults(self):
+    @staticmethod
+    def set_defaults():
         set_defaults(Window)
 
-    def delete_defaults(self):
+    @staticmethod
+    def delete_defaults():
         delete_defaults(Window)
 
     def toggle_xml_usage(self):
@@ -1036,33 +1681,73 @@ class AnalysationWindow(QMainWindow):
 
     def select_starting_time(self):
         try:
-            a = self.videopath_list
-            b = self.folderpath
-            del a
-            del b
+            _ = self.videopath_list
+            _ = self.folderpath
             date_picker_popup = DatePickerPopup()
             date_picker_popup.exec_()
         except AttributeError:
             self.video_not_defined = QMessageBox()
             self.video_not_defined.setWindowTitle("No video selected!")
             self.video_not_defined.setText('To be able to select the video starting time, you have to select a video.')
-            self.video_not_defined.setInformativeText('<h3><strong>For that, press the first blue "Browse" button.</strong></h3>')
+            self.video_not_defined.setInformativeText(
+                '<h3><strong>For that, press the first blue "Browse" button.</strong></h3>')
             self.video_not_defined.setIcon(QMessageBox.Critical)
             self.video_not_defined.setStandardButtons(QMessageBox.Close)
             self.video_not_defined.exec_()
-    
-    def open_ama_file(self):
-        #ama_filepath = QFileDialog.getOpenFileName(self, "Select AMA File")[0]
-        ama_filepath = "D:/Jugend forscht/Jugend forscht 2021/AMOS/Tests/template.ama"
-        if ama_filepath != "":
-            self.results_window = ResultsWindow(ama_filepath)
+
+    def open_amos_file(self):
+        if self.amos_file_path == "":
+            amos_filepath = QFileDialog.getOpenFileName(self, "Select AMOS File")[0]
+        else:
+            amos_filepath = self.amos_file_path
+        # amos_filepath = "D:/Jugend forscht/Jugend forscht 2021/AMOS/Tests/test_results.amos"
+        # amos_filepath = "D:/Jugend forscht/Jugend forscht 2021/AMOS/Tests/template.amos"
+        if amos_filepath != "":
+            self.amos_file_path = ""
+            self.results_window = ResultsWindow(amos_filepath)
             self.results_window.show()
 
-    def save_ama_file(self):
-        ama_filepath = QFileDialog.getSaveFileName(self, "Select a directory to save the AMA file in")[0]
-        temp_meteor_data = {'signal_1': {'position': (1410, 931), 'frame': [52]}, 'signal_2': {'position': (1425, 939), 'frame': [53]}, 'signal_3': {'position': (1440, 947), 'frame': [54]}, 'signal_4': {'position': (1456, 955), 'frame': [55]}, 'signal_5': {'position': (1473, 963), 'frame': [56]}, 'signal_6': {'position': (1490, 972), 'frame': [57]}, 'signal_7': {'position': (1507, 980), 'frame': [58]}, 'signal_8': {'position': (1525, 989), 'frame': [59]}, 'signal_9': {'position': (1461, 957), 'frame': [59]}, 'signal_10': {'position': (1474, 964), 'frame': [60]}, 'signal_11': {'position': (1475, 965), 'frame': [61]}, 'signal_12': {'position': (1475, 964), 'frame': [62]}, 'signal_13': {'position': (1474, 964), 'frame': [63]}, 'signal_14': {'position': (1473, 964), 'frame': [64]}, 'signal_15': {'position': (1471, 962), 'frame': [65]}, 'signal_16': {'position': (1482, 968), 'frame': [66]}, 'signal_17': {'position': (1455, 954), 'frame': [66]}, 'signal_18': {'position': (1484, 969), 'frame': [67]}, 'signal_19': {'position': (1457, 955), 'frame': [67]}, 'signal_20': {'position': (1484, 968), 'frame': [68]}, 'signal_21': {'position': (904, 480), 'frame': [245]}, 'signal_22': {'position': (909, 481), 'frame': [246]}, 'signal_23': {'position': (915, 482), 'frame': [247]}, 'signal_24': {'position': (921, 483), 'frame': [248]}, 'signal_25': {'position': (928, 484), 'frame': [249]}, 'signal_26': {'position': (934, 485), 'frame': [250]}, 'signal_27': {'position': (941, 486), 'frame': [251]}, 'signal_28': {'position': (948, 487), 'frame': [252]}, 'signal_29': {'position': (955, 488), 'frame': [253]}, 'signal_30': {'position': (962, 489), 'frame': [254]}, 'signal_31': {'position': (967, 491), 'frame': [255]}, 'signal_32': {'position': (964, 492), 'frame': [256]}, 'signal_33': {'position': (967, 493), 'frame': [257]}, 'signal_34': {'position': (972, 495), 'frame': [258]}, 'signal_35': {'position': (982, 496), 'frame': [259]}, 'signal_36': {'position': (988, 497), 'frame': [260]}, 'signal_37': {'position': (1012, 500), 'frame': [266]}, 'signal_38': {'position': (1009, 498), 'frame': [267]}, 'signal_39': {'position': (1008, 497), 'frame': [268]}, 'signal_40': {'position': (1008, 497), 'frame': [269]}, 'signal_41': {'position': (1009, 496), 'frame': [270]}, 'signal_42': {'position': (1008, 496), 'frame': [271]}, 'signal_43': {'position': (1009, 496), 'frame': [272]}, 'signal_44': {'position': (1008, 496), 'frame': [273]}, 'signal_45': {'position': (1007, 496), 'frame': [274]}, 'signal_46': {'position': (1006, 495), 'frame': [275]}, 'signal_47': {'position': (1006, 495), 'frame': [276]}, 'signal_48': {'position': (1006, 495), 'frame': [277]}, 'signal_49': {'position': (1006, 496), 'frame': [278]}, 'signal_50': {'position': (1005, 496), 'frame': [279]}, 'signal_51': {'position': (1004, 495), 'frame': [280]}, 'signal_52': {'position': (1004, 495), 'frame': [281]}, 'signal_53': {'position': (1003, 495), 'frame': [282]}, 'signal_54': {'position': (1003, 495), 'frame': [283]}, 'signal_55': {'position': (1006, 496), 'frame': [284]}, 'signal_56': {'position': (1005, 495), 'frame': [285]}, 'signal_57': {'position': (1002, 495), 'frame': [286]}, 'signal_58': {'position': (1003, 495), 'frame': [287]}, 'signal_59': {'position': (1002, 495), 'frame': [288]}, 'signal_60': {'position': (1002, 495), 'frame': [289]}, 'signal_61': {'position': (1000, 496), 'frame': [290]}, 'signal_62': {'position': (1001, 496), 'frame': [291]}, 'signal_63': {'position': (1000, 496), 'frame': [292]}, 'signal_64': {'position': (1061, 506), 'frame': [293]}, 'signal_65': {'position': (999, 496), 'frame': [293]}, 'signal_66': {'position': (999, 496), 'frame': [294]}, 'signal_67': {'position': (1001, 496), 'frame': [295]}, 'signal_68': {'position': (1000, 496), 'frame': [296]}, 'signal_69': {'position': (1000, 496), 'frame': [297]}, 'signal_70': {'position': (995, 495), 'frame': [298]}, 'signal_71': {'position': (994, 495), 'frame': [299]}, 'signal_72': {'position': (994, 495), 'frame': [300]}, 'signal_73': {'position': (995, 495), 'frame': [301]}, 'signal_74': {'position': (995, 495), 'frame': [302]}, 'signal_75': {'position': (995, 495), 'frame': [303]}, 'signal_76': {'position': (995, 495), 'frame': [304]}, 'signal_77': {'position': (994, 495), 'frame': [305]}, 'signal_78': {'position': (995, 495), 'frame': [306]}, 'signal_79': {'position': (996, 495), 'frame': [307]}, 'signal_80': {'position': (995, 494), 'frame': [308]}, 'signal_81': {'position': (994, 494), 'frame': [309]}, 'signal_82': {'position': (995, 495), 'frame': [310]}, 'signal_83': {'position': (994, 495), 'frame': [311]}, 'signal_84': {'position': (994, 495), 'frame': [312]}, 'signal_85': {'position': (994, 495), 'frame': [313]}, 'signal_86': {'position': (994, 494), 'frame': [314]}, 'signal_87': {'position': (995, 494), 'frame': [315]}, 'signal_88': {'position': (995, 495), 'frame': [316]}, 'signal_89': {'position': (994, 494), 'frame': [317]}, 'signal_90': {'position': (995, 495), 'frame': [318]}, 'signal_91': {'position': (995, 495), 'frame': [319]}, 'signal_92': {'position': (995, 494), 'frame': [320]}, 'signal_93': {'position': (994, 494), 'frame': [321]}, 'signal_94': {'position': (994, 494), 'frame': [322]}, 'signal_95': {'position': (992, 494), 'frame': [323]}}
-        write_ama_file(ama_filepath, temp_meteor_data, 1, 1, [[2020, 6, 8, 15, 10, 30],[2020, 6, 9, 10, 12, 10]], ["D:/Jugend forscht/Jugend forscht 2021/AMOS/Tests/V-0001.mp4", "D:/Jugend forscht/Jugend forscht 2021/AMOS/Tests/V-0002.mp4"], ["D:/Jugend forscht/Jugend forscht 2021/AMOS/Tests/V-0001.XML", "D:/Jugend forscht/Jugend forscht 2021/AMOS/Tests/V-0002.XML"], "D:/Jugend forscht/Jugend forscht 2021/AMOS/Tests/Results", [1000, 2000], [25, 50], [[3840, 2160], [1920, 1080]])
-        
+    def save_amos_file(self):
+        if not self.was_successful:
+            run_analysation_first = QMessageBox(icon=QMessageBox.Critical, text="To save an AMOS-File, run the "
+                                                                                "analysation first.")
+            run_analysation_first.setWindowTitle("No results")
+            run_analysation_first.exec_()
+            return False
+        amos_filepath = QFileDialog.getSaveFileName(self, "Select a directory to save the AMOS file in")[0]
+        if amos_filepath != "":
+            write_amos_file(Window, amos_filepath, self.meteor_data, self.sort_out_list, 1, self.base_time_list,
+                            self.videopath_list, self.xmlpath_list, self.folderpath, self.length_list, self.fps_list,
+                            [self.height_list, self.width_list])
+        else:
+            return False
+        self.unsaved_changes = False
+        self.setWindowTitle("AMOS - Automatic Meteor Observation System")
+        return True
+
+    def open_settings(self):
+        self.settings_window = SettingsWindow()
+        self.settings_window.show()
+
+    def closeEvent(self, event):
+        if self.unsaved_changes and self.was_successful:
+            save_changes = QMessageBox.question(Window, "Analysation results modified", "Save changes before closing?",
+                                                QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
+                                                QMessageBox.Save)
+            if save_changes == QMessageBox.Discard:
+                event.accept()
+            elif save_changes == QMessageBox.Cancel:
+                event.ignore()
+            else:
+                a = self.save_amos_file()
+                print(a)
+                if a:
+                    event.accept()
+                else:
+                    event.ignore()
+        else:
+            event.accept()
+
 
 QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
 QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
@@ -1070,7 +1755,13 @@ app = QApplication(sys.argv)
 app.setStyleSheet(StyleSheet)
 
 Window = AnalysationWindow()
-#Window.show()
-Window.open_ama_file()
+Window.show()
+# Window.open_settings()
+if Window.amos_file_path != "":
+    Window.open_amos_file()
+# Window.open_amos_file()
+
+# Window.apply_defaults()
+# Window.analyse()
 
 sys.exit(app.exec_())
