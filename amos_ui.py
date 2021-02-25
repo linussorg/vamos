@@ -5,7 +5,6 @@ import os
 import sys
 import xml.etree.ElementTree as Et
 
-import openpyxl as xl
 from PyQt5.QtCore import Qt, QSize, QAbstractTableModel, QUrl
 from PyQt5.QtGui import QFont, QIcon, QPixmap, QCursor, QImage, QMovie
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
@@ -15,7 +14,7 @@ from PyQt5.QtWidgets import QWidget, QLabel, QGridLayout, QSpacerItem, QPushButt
     QMessageBox, QSpinBox, QDialog, QCheckBox, QRadioButton, QTableView, QSlider, QSplitter, QTabWidget, \
     QDoubleSpinBox, QLineEdit, QComboBox
 
-from amos_functions import analyse, get_thumbnail, save_spreadsheet, apply_defaults, set_defaults, delete_defaults, \
+from amos_functions import analyse, get_thumbnail, apply_defaults, set_defaults, delete_defaults, \
     write_amos_file
 
 StyleSheet = """
@@ -101,6 +100,28 @@ QPushButton#secondary_button:hover {
     padding:6px;
     max-width:80px;
     min-width:80px;
+}
+QPushButton#secondary_button_wide {
+    background-color:transparent;
+    color:#2894E0;
+    border-style:solid;
+    border-width:2px;
+    border-radius:4px;
+    border-color:#2894E0;
+    padding:6px;
+    max-width:180px;
+    min-width:180px;
+}
+QPushButton#secondary_button_wide:hover {
+    background-color:#2894E0;
+    color:#121212;
+    border-style:solid;
+    border-width:2px;
+    border-radius:4px;
+    border-color:#2894E0;
+    padding:6px;
+    max-width:180px;
+    min-width:180px;
 }
 QPushButton#tertiary_button {
     background-color:transparent;
@@ -718,7 +739,7 @@ class SettingsWindow(QWidget):
             self.delete_threshold.get_value(),
             self.delete_percentage.get_value()
         ]
-        with open("files/settings.txt", "w") as settings_file:
+        with open("files/settings.data", "w") as settings_file:
             settings_file.write(json.dumps(settings_list))
         return True
 
@@ -727,7 +748,7 @@ class SettingsWindow(QWidget):
             self.close()
 
     def setup_values(self):
-        with open("files/settings.txt", "r") as settings_file:
+        with open("files/settings.data", "r") as settings_file:
             settings_list = json.loads(settings_file.read())
             self.blur.change_value(settings_list[0])
             self.x_grid.change_value(settings_list[1])
@@ -763,7 +784,10 @@ class TableModel(QAbstractTableModel):
         return len(self._data)
 
     def columnCount(self, index):
-        return len(self._data[0])
+        try:
+            return len(self._data[0])
+        except IndexError:
+            return 0
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
         if role == Qt.DisplayRole and orientation == Qt.Horizontal:
@@ -790,12 +814,12 @@ class ResultsWindow(QWidget):
         self.loop_disabled_icon = QIcon()
         self.loop_disabled_icon.addPixmap(QPixmap("files/loop_disabled.png"), QIcon.Normal, QIcon.Off)
 
+        self.amos_filepath = amos_filepath
+
         self.setObjectName("default_widget")
-        self.setWindowTitle("AMOS - Automatic Meteor Observation System")
+        self.setWindowTitle(f"AMOS - {self.amos_filepath}")
         self.setWindowIcon(self.app_icon)
         self.setGeometry(350, 100, 900, 500)
-
-        self.amos_filepath = amos_filepath
 
         self.init_ui()
 
@@ -890,6 +914,11 @@ class ResultsWindow(QWidget):
         self.folderpath_label.setObjectName("default_label")
         self.folderpath_label.setFont(self.font_big)
 
+        self.generate_spreadsheet_button = QPushButton("GENERATE SPREADSHEET")
+        self.generate_spreadsheet_button.setObjectName("secondary_button_wide")
+        self.generate_spreadsheet_button.setFont(Window.font_bold_10)
+        self.generate_spreadsheet_button.setCursor(QCursor(Qt.PointingHandCursor))
+
         self.video_player = QMediaPlayer(None, QMediaPlayer.VideoSurface)
         self.video_player.setMedia(QMediaContent(QUrl.fromLocalFile(self.videopath_list[0])))
         self.video_player.play()
@@ -922,6 +951,11 @@ class ResultsWindow(QWidget):
         self.time_label.setMaximumSize(QSize(60, 12))
         self.time_label.setObjectName("default_label")
         self.time_label.setFont(Window.font_normal_10)
+        self.frame_label = QLabel(self)
+        self.frame_label.setText("0")
+        self.frame_label.setMaximumSize(QSize(60, 12))
+        self.frame_label.setObjectName("default_label")
+        self.frame_label.setFont(Window.font_normal_10)
         self.video_time = datetime.time(0, 0, 0)
 
         self.video_slider = QSlider(Qt.Horizontal, self)
@@ -938,6 +972,7 @@ class ResultsWindow(QWidget):
         self.control_layout.addWidget(self.video_slider)
         self.control_layout.addWidget(self.mute_button)
         self.control_layout.addWidget(self.loop_button)
+        self.control_layout.addWidget(self.frame_label)
 
         self.data_layout.addWidget(self.meta_data_table)
         self.data_layout.addWidget(self.meteor_data_table)
@@ -946,6 +981,7 @@ class ResultsWindow(QWidget):
         self.main_layout.addWidget(self.data_layout)
 
         self.video_layout.addWidget(self.project_info_box)
+        self.video_layout.addWidget(self.generate_spreadsheet_button)
         self.video_layout.addWidget(self.video_widget)
         self.video_layout.addWidget(self.video_name_label)
         self.video_layout.addLayout(self.control_layout)
@@ -1024,6 +1060,7 @@ class ResultsWindow(QWidget):
         self.video_slider.setValue(position)
         self.video_time = datetime.timedelta(milliseconds=position)
         self.time_label.setText(str(self.video_time)[:7])
+        self.frame_label.setText(str(int(self.video_time.total_seconds() * self.Fps_list[self.media_index])))
 
     def duration_changed(self, duration):
         self.video_slider.setRange(0, duration)
@@ -1093,7 +1130,7 @@ class AnalysationWindow(QMainWindow):
         self.was_successful = False
         self.broke_frame = 0
 
-        self.resize(1000, 700)
+        self.resize(1000, 600)
         self.setFont(self.default_font)
         self.setWindowTitle("AMOS - Automatic Meteor Observation System")
         self.setWindowIcon(self.app_icon)
@@ -1280,23 +1317,6 @@ class AnalysationWindow(QMainWindow):
         self.analyse_layout.addItem(spacer_status_analyse)
         self.analyse_layout.addWidget(self.analyse_button)
 
-        # Spreadsheet section
-        self.spreadsheet_group = QGroupBox(self.centralwidget)
-        self.spreadsheet_group.setGeometry(20, 570, 480, 80)
-        self.spreadsheet_group.setFont(self.font_normal_10)
-        self.spreadsheet_group.setFlat(True)
-
-        self.open_spreadsheet_button = QPushButton(self.spreadsheet_group)
-        self.open_spreadsheet_button.setGeometry(20, 30, 250, 32)
-        self.open_spreadsheet_button.setFont(self.font_bold_9)
-        self.open_spreadsheet_button.setObjectName("tertiary_button")
-        self.open_spreadsheet_button.setCursor(QCursor(Qt.PointingHandCursor))
-        self.save_spreadsheet_button = QPushButton(self.spreadsheet_group)
-        self.save_spreadsheet_button.setGeometry(300, 30, 150, 32)
-        self.save_spreadsheet_button.setFont(self.font_bold_9)
-        self.save_spreadsheet_button.setObjectName("tertiary_button")
-        self.save_spreadsheet_button.setCursor(QCursor(Qt.PointingHandCursor))
-
         # Setup the central widget
         self.setCentralWidget(self.centralwidget)
 
@@ -1344,10 +1364,6 @@ class AnalysationWindow(QMainWindow):
 
         self.analyse_button.setText("ANALYSE")
 
-        self.spreadsheet_group.setTitle("Spreadsheet options")
-        self.open_spreadsheet_button.setText("Open spreadsheet with results")
-        self.save_spreadsheet_button.setText("Save spreadsheet")
-
         self.browse_video_button.setToolTip("Browse to select a video to process.")
         self.browse_xml_button.setToolTip("Browse to select an xml file.")
         self.browse_folder_button.setToolTip("Browse to select a folder to store results in.")
@@ -1385,8 +1401,6 @@ class AnalysationWindow(QMainWindow):
         self.set_defaults_button.clicked.connect(self.set_defaults)
         self.delete_defaults_button.clicked.connect(self.delete_defaults)
         self.help_defaults_button.clicked.connect(self.help_defaults)
-        self.open_spreadsheet_button.clicked.connect(self.open_spreadsheet)
-        self.save_spreadsheet_button.clicked.connect(self.save_spreadsheet)
         self.analyse_button.clicked.connect(self.analyse)
 
         self.actionQuit.triggered.connect(sys.exit)
@@ -1511,26 +1525,9 @@ class AnalysationWindow(QMainWindow):
 
         help_defaults_message.exec_()
 
-    def open_spreadsheet(self):
-        try:
-            os.startfile(f"{self.folderpath}/Results.xlsx")
-        except AttributeError:
-            self.open_spreadsheet_message = QMessageBox()
-            self.open_spreadsheet_message.setWindowTitle("Folder selection missing!")
-            self.open_spreadsheet_message.setText(
-                "To open the results spreadsheet, you first have to: \n    1. Select a folder where the results are "
-                "stored in.\n    2. Run the analysation to generate results. NOTE: You can also use this \n        "
-                "application to view existing results. In this case, you don't have to run the \n        analysation, "
-                "but you have to select the folder where it is stored in")
-            self.open_spreadsheet_message.setIcon(QMessageBox.Warning)
-            self.open_spreadsheet_message.setStandardButtons(QMessageBox.Close)
-            self.open_spreadsheet_message.exec_()
-
     def analyse(self):
         try:
             self.meteor_data = {}
-            self.wb = xl.load_workbook('files/Results_template.xlsx')
-            self.sheet = self.wb['Data']
             self.meteor_count = 0
 
             self.length_list = []
@@ -1590,65 +1587,27 @@ class AnalysationWindow(QMainWindow):
 
                 self.analysation_status_image.setPixmap(QPixmap("files/check_icon.png"))
                 self.analysation_status_image.setToolTip("Status:\nCompleted!")
-                try:
-                    self.wb.save(f'{self.folderpath}/Results.xlsx')
-                except PermissionError:
-                    Window.spreadsheet_opened_error = QMessageBox(icon=QMessageBox.Warning,
-                                                                  text='You have your spreadsheet still opened! Close '
-                                                                       'it and press "Save spreadsheet" again, '
-                                                                       'otherwise ALL DATA WILL BE LOST!')
-                    Window.spreadsheet_opened_error.setWindowTitle("Spreadsheet still opened!")
-                    Window.spreadsheet_opened_error.setStandardButtons(QMessageBox.Close)
 
-                    Window.spreadsheet_opened_error.exec_()
+                with open("F:/Jugend forscht 2021/Videoaufnahmen/13. - 14.12.2020/V-0001/generate_results/debug.txt",
+                          "a") as f:
+                    f.truncate(0)
+                    f.write(json.dumps(self.meteor_data))
+                    f.write("\n")
+                    f.write(json.dumps(self.sort_out_list))
 
-        except AttributeError as a:
+        except ArithmeticError as a:
             self.analyse_error_message = QMessageBox(icon=QMessageBox.Critical,
                                                      text='The analysation algorithm needs three infos:\n    1. The '
                                                           'video to process.\n    2. The beginning of the video, either'
                                                           ' from an XML-File or \n        the manual picker'
                                                           '\n    3. The folder where it saves images '
-                                                          'of frames with meteors \n        and the spreadsheet.')
+                                                          'of frames with meteors.')
             self.analyse_error_message.setWindowTitle("File selection missing!")
             self.analyse_error_message.setInformativeText(
                 '<h3><strong>To select these infos, press the blue "Browse" buttons.</strong></h3>')
             self.analyse_error_message.setDetailedText("Error message:\n" + str(a))
             self.analyse_error_message.setStandardButtons(QMessageBox.Close)
             self.analyse_error_message.exec_()
-        except IndentationError as e:
-            self.analyse_error_message = QMessageBox(icon=QMessageBox.Critical,
-                                                     text=f"The following unknown error occurred:\n'{e}'\nPlease "
-                                                          f"contact the developer of this program to fix the problem!")
-            self.analyse_error_message.setWindowTitle("Unknown error occurred")
-            self.analyse_error_message.exec_()
-
-    def save_spreadsheet(self):
-        try:
-            save_spreadsheet(Window)
-            self.spreadsheet_success_message = QMessageBox()
-            self.spreadsheet_success_message.setWindowTitle("Saved successfully!")
-            self.spreadsheet_success_message.setText('Spreadsheet saved successfully!')
-            self.spreadsheet_success_message.setIcon(QMessageBox.Information)
-            self.spreadsheet_success_message.setStandardButtons(QMessageBox.Ok)
-            self.spreadsheet_success_message.exec_()
-
-        except PermissionError:
-            self.spreadsheet_opened_error = QMessageBox()
-            self.spreadsheet_opened_error.setWindowTitle("Spreadsheet still opened!")
-            self.spreadsheet_opened_error.setText(
-                'You have your spreadsheet still opened! Close it and press "Save spreadsheet" again, otherwise ALL '
-                'DATA WILL BE LOST!')
-            self.spreadsheet_opened_error.setIcon(QMessageBox.Warning)
-            self.spreadsheet_opened_error.setStandardButtons(QMessageBox.Close)
-            self.spreadsheet_opened_error.exec_()
-
-        except AttributeError:
-            self.spreadsheet_not_able_to_save = QMessageBox()
-            self.spreadsheet_not_able_to_save.setWindowTitle("Data missing!")
-            self.spreadsheet_not_able_to_save.setText('Please run the analysation before saving the spreadsheet.')
-            self.spreadsheet_not_able_to_save.setIcon(QMessageBox.Warning)
-            self.spreadsheet_not_able_to_save.setStandardButtons(QMessageBox.Close)
-            self.spreadsheet_not_able_to_save.exec_()
 
     @staticmethod
     def apply_defaults():
@@ -1697,7 +1656,8 @@ class AnalysationWindow(QMainWindow):
 
     def open_amos_file(self):
         if self.amos_file_path == "":
-            amos_filepath = QFileDialog.getOpenFileName(self, "Select AMOS File")[0]
+            amos_filepath = QFileDialog.getOpenFileName(
+                self, caption="Select AMOS File", filter="AMOS Files (*.amos)")[0]
         else:
             amos_filepath = self.amos_file_path
         # amos_filepath = "D:/Jugend forscht/Jugend forscht 2021/AMOS/Tests/test_results.amos"
@@ -1714,11 +1674,14 @@ class AnalysationWindow(QMainWindow):
             run_analysation_first.setWindowTitle("No results")
             run_analysation_first.exec_()
             return False
-        amos_filepath = QFileDialog.getSaveFileName(self, "Select a directory to save the AMOS file in")[0]
+        amos_filepath = QFileDialog.getSaveFileName(self,
+                                                    "Select a directory to save the AMOS file in",
+                                                    self.folderpath + "/" + self.VideoID_List[0] + ".amos",
+                                                    "AMOS Files (*.amos)")[0]
         if amos_filepath != "":
-            write_amos_file(Window, amos_filepath, self.meteor_data, self.sort_out_list, 1, self.base_time_list,
-                            self.videopath_list, self.xmlpath_list, self.folderpath, self.length_list, self.fps_list,
-                            [self.height_list, self.width_list])
+            write_amos_file(Window.Fps, amos_filepath, self.meteor_data, self.sort_out_list, self.len_mul,
+                            self.base_time_list, self.videopath_list, self.xmlpath_list, self.folderpath,
+                            self.length_list, self.fps_list, [self.height_list, self.width_list])
         else:
             return False
         self.unsaved_changes = False
@@ -1740,13 +1703,24 @@ class AnalysationWindow(QMainWindow):
                 event.ignore()
             else:
                 a = self.save_amos_file()
-                print(a)
                 if a:
                     event.accept()
                 else:
                     event.ignore()
         else:
             event.accept()
+
+
+def amos_error_handler(exctype, value, tb):
+    error_message_box = QMessageBox(icon=QMessageBox.Critical,
+                                    text=f'The following unknown error occurred:\n{exctype.__name__}: {value}')
+    error_message_box.setInformativeText(
+        '<strong>Please contact the developer of this program to fix the problem!</strong>')
+    error_message_box.setWindowTitle("Unknown error occurred")
+    error_message_box.exec_()
+
+
+sys.excepthook = amos_error_handler
 
 
 QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
