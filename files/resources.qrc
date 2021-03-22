@@ -1,6 +1,0 @@
-<RCC>
-  <qresource prefix="png">
-    <file>warning_icon_small.png</file>
-    <file>warning_icon.png</file>
-  </qresource>
-</RCC>
