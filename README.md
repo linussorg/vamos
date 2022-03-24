@@ -1,3 +1,5 @@
+# Important Note: VAMOS is deprecated. It's successor, VAMOS+, uses an AI and achieves better results when detecting. Go to https://github.com/linussorg/vamos-plus to see the repository.
+
 ![VAMOS Logo](files/vamos_logo_white.png)
 
 VAMOS is a software for detecting meteors (shooting stars) in videos. In order to detect them in videos, it recognizes moving objects and uses different algorithms to filter out the meteors.
